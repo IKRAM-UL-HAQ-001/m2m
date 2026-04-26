@@ -11,11 +11,13 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:provider/provider.dart';
 import '../models/chat.dart';
 import '../models/message.dart';
 import '../services/api_service.dart';
 import '../services/websocket_service.dart';
 import '../utils/constants.dart';
+import '../viewmodels/chat_viewmodel.dart';
 
 class ChatDetailScreen extends StatefulWidget {
   final Chat chat;
@@ -33,8 +35,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   List<Message> _messages = [];
   bool _isLoading = true;
   StreamSubscription<Message>? _socketSubscription;
+  StreamSubscription<MessageStatusUpdate>? _messageStatusSubscription;
   String? _currentChatId;
   Set<String> _downloadedUrls = {};
+  late final ChatViewModel _chatViewModel;
   
   final _audioRecorder = AudioRecorder();
   bool _isRecording = false;
@@ -43,7 +47,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   @override
   void initState() {
     super.initState();
+    _chatViewModel = context.read<ChatViewModel>();
     _currentChatId = widget.chat.id;
+    _chatViewModel.setActiveChat(_currentChatId);
     _loadDownloadedFiles();
     _refreshMessages();
     _initSocket();
@@ -53,9 +59,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     _socketSubscription = SocketService().messageStream.listen((message) {
       if (message.chatId == _currentChatId) {
         setState(() {
-          if (!_messages.any((m) => m.id == message.id)) {
-            _messages.insert(0, message);
-          }
+          _upsertMessage(message);
+        });
+      }
+    });
+    _messageStatusSubscription = SocketService().messageStatusStream.listen((status) {
+      if (status.chatId == _currentChatId) {
+        setState(() {
+          _applyMessageStatus(status);
         });
       }
     });
@@ -72,6 +83,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         _messages = messages;
         _isLoading = false;
       });
+      _chatViewModel.markChatRead(_currentChatId!);
     } catch (e) {
       debugPrint('Error loading messages: $e');
       setState(() => _isLoading = false);
@@ -96,9 +108,38 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   @override
   void dispose() {
     _socketSubscription?.cancel();
+    _messageStatusSubscription?.cancel();
+    if (_chatViewModel.activeChatId == _currentChatId) {
+      _chatViewModel.setActiveChat(null);
+    }
     _audioRecorder.dispose();
     _messageController.dispose();
     super.dispose();
+  }
+
+  void _upsertMessage(Message message) {
+    final existingIndex = _messages.indexWhere((item) => item.id == message.id);
+    if (existingIndex == -1) {
+      _messages.insert(0, message);
+      return;
+    }
+
+    final currentMessage = _messages[existingIndex];
+    _messages[existingIndex] = message.copyWith(
+      isDelivered: currentMessage.isDelivered || message.isDelivered,
+      isRead: currentMessage.isRead || message.isRead,
+    );
+  }
+
+  void _applyMessageStatus(MessageStatusUpdate status) {
+    final existingIndex = _messages.indexWhere((item) => item.id == status.messageId);
+    if (existingIndex == -1) return;
+
+    final currentMessage = _messages[existingIndex];
+    _messages[existingIndex] = currentMessage.copyWith(
+      isDelivered: currentMessage.isDelivered || status.isDelivered,
+      isRead: currentMessage.isRead || status.isRead,
+    );
   }
 
   Future<void> _startRecording() async {
@@ -152,8 +193,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       if (message != null) {
         if (_currentChatId!.startsWith('new_')) {
           _currentChatId = message.chatId;
+          _chatViewModel.setActiveChat(_currentChatId);
         }
-        _refreshMessages();
+        setState(() {
+          _upsertMessage(message);
+        });
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -169,8 +213,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     if (message != null) {
       if (_currentChatId!.startsWith('new_')) {
         _currentChatId = message.chatId;
+        _chatViewModel.setActiveChat(_currentChatId);
       }
-      _refreshMessages();
+      setState(() {
+        _upsertMessage(message);
+      });
     } else {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

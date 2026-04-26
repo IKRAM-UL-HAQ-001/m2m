@@ -14,7 +14,7 @@ class AppColors {
 }
 
 class AppConstants {
-  static const String serverIp = '54.85.57.11';
+  static const String serverIp = '127.0.0.1:8000';
   static const String apiBaseUrl = 'http://$serverIp/api';
   static const String authBaseUrl = 'http://$serverIp/auth';
   static const String wsBaseUrl = 'ws://$serverIp/ws/chat/';

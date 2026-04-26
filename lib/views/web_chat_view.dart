@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 import '../models/chat.dart';
 import '../models/message.dart';
 import '../services/api_service.dart';
 import '../services/websocket_service.dart';
 import '../utils/constants.dart';
 import 'dart:async';
+import '../viewmodels/chat_viewmodel.dart';
 
 class WebChatView extends StatefulWidget {
   final Chat chat;
@@ -22,10 +24,14 @@ class _WebChatViewState extends State<WebChatView> {
   List<Message> _messages = [];
   bool _isLoading = true;
   StreamSubscription<Message>? _socketSubscription;
+  StreamSubscription<MessageStatusUpdate>? _messageStatusSubscription;
+  late final ChatViewModel _chatViewModel;
 
   @override
   void initState() {
     super.initState();
+    _chatViewModel = context.read<ChatViewModel>();
+    _chatViewModel.setActiveChat(widget.chat.id);
     _loadMessages();
     _initSocket();
   }
@@ -34,18 +40,25 @@ class _WebChatViewState extends State<WebChatView> {
   void didUpdateWidget(WebChatView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.chat.id != widget.chat.id) {
+      _chatViewModel.setActiveChat(widget.chat.id);
       _loadMessages();
     }
   }
 
   void _initSocket() {
     _socketSubscription?.cancel();
+    _messageStatusSubscription?.cancel();
     _socketSubscription = SocketService().messageStream.listen((message) {
       if (message.chatId == widget.chat.id) {
         setState(() {
-          if (!_messages.any((m) => m.id == message.id)) {
-            _messages.insert(0, message);
-          }
+          _upsertMessage(message);
+        });
+      }
+    });
+    _messageStatusSubscription = SocketService().messageStatusStream.listen((status) {
+      if (status.chatId == widget.chat.id) {
+        setState(() {
+          _applyMessageStatus(status);
         });
       }
     });
@@ -59,9 +72,35 @@ class _WebChatViewState extends State<WebChatView> {
         _messages = messages;
         _isLoading = false;
       });
+      _chatViewModel.markChatRead(widget.chat.id);
     } catch (e) {
       setState(() => _isLoading = false);
     }
+  }
+
+  void _upsertMessage(Message message) {
+    final existingIndex = _messages.indexWhere((item) => item.id == message.id);
+    if (existingIndex == -1) {
+      _messages.insert(0, message);
+      return;
+    }
+
+    final currentMessage = _messages[existingIndex];
+    _messages[existingIndex] = message.copyWith(
+      isDelivered: currentMessage.isDelivered || message.isDelivered,
+      isRead: currentMessage.isRead || message.isRead,
+    );
+  }
+
+  void _applyMessageStatus(MessageStatusUpdate status) {
+    final existingIndex = _messages.indexWhere((item) => item.id == status.messageId);
+    if (existingIndex == -1) return;
+
+    final currentMessage = _messages[existingIndex];
+    _messages[existingIndex] = currentMessage.copyWith(
+      isDelivered: currentMessage.isDelivered || status.isDelivered,
+      isRead: currentMessage.isRead || status.isRead,
+    );
   }
 
   void _sendMessage() async {
@@ -71,7 +110,9 @@ class _WebChatViewState extends State<WebChatView> {
       setState(() => _showSendIcon = false);
       final message = await _apiService.sendMessage(widget.chat.receiverId, text);
       if (message != null) {
-        _loadMessages();
+        setState(() {
+          _upsertMessage(message);
+        });
       }
     }
   }
@@ -79,6 +120,10 @@ class _WebChatViewState extends State<WebChatView> {
   @override
   void dispose() {
     _socketSubscription?.cancel();
+    _messageStatusSubscription?.cancel();
+    if (_chatViewModel.activeChatId == widget.chat.id) {
+      _chatViewModel.setActiveChat(null);
+    }
     _messageController.dispose();
     super.dispose();
   }

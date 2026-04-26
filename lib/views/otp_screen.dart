@@ -53,7 +53,6 @@ class _OtpScreenState extends State<OtpScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final authProvider = Provider.of<AuthViewModel>(context, listen: false);
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -79,8 +78,7 @@ class _OtpScreenState extends State<OtpScreen> {
             style: TextStyle(color: Colors.grey[800]),
           ),
           Text(
-            "your Phone number",
-            // authProvider.currentPhoneNumber,
+            "your phone number",
             style: const TextStyle(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 20),

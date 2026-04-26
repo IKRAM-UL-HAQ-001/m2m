@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../services/notification_service.dart';
+import '../services/websocket_service.dart';
 
 class AuthViewModel extends ChangeNotifier {
   bool _isAuthenticated = false;
@@ -15,11 +16,7 @@ class AuthViewModel extends ChangeNotifier {
   String? get linkToken => _linkToken;
 
   final ApiService _apiService = ApiService();
-
-  AuthViewModel() {
-    // Delay to avoid calling notifyListeners during build
-    Future.microtask(() => checkAuthStatus());
-  }
+  final SocketService _socketService = SocketService();
 
   Future<void> checkAuthStatus() async {
     _isLoading = true;
@@ -33,7 +30,10 @@ class AuthViewModel extends ChangeNotifier {
     ApiService.currentUserId = prefs.getString('user_id');
 
     if (_isAuthenticated) {
-      NotificationService.getTokenAndSave();
+      await _socketService.connect();
+      await NotificationService.getTokenAndSave();
+    } else {
+      _socketService.disconnect();
     }
 
     _isLoading = false;
@@ -63,8 +63,8 @@ class AuthViewModel extends ChangeNotifier {
       if (result['user'] != null && result['user']['name'] != null && result['user']['name'].toString().isNotEmpty) {
         await prefs.setBool('isLoggedIn', true);
         _isAuthenticated = true;
-        // Get and save FCM token
-        NotificationService.getTokenAndSave();
+        await _socketService.connect();
+        await NotificationService.getTokenAndSave();
       }
       
       notifyListeners();
@@ -80,7 +80,8 @@ class AuthViewModel extends ChangeNotifier {
       await prefs.setBool('isLoggedIn', true);
       _isAuthenticated = true;
       
-      NotificationService.getTokenAndSave();
+      await _socketService.connect();
+      await NotificationService.getTokenAndSave();
       
       notifyListeners();
       return true;
@@ -91,7 +92,10 @@ class AuthViewModel extends ChangeNotifier {
   Future<void> logout() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear();
+    ApiService.currentUserId = null;
+    _linkToken = null;
     _isAuthenticated = false;
+    _socketService.disconnect();
     notifyListeners();
   }
 
@@ -119,6 +123,7 @@ class AuthViewModel extends ChangeNotifier {
           await prefs.setBool('isLoggedIn', true);
           _isAuthenticated = true;
           _linkToken = null;
+          await _socketService.connect();
           notifyListeners();
           break;
         }

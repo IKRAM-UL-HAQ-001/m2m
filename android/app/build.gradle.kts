@@ -29,7 +29,7 @@ android {
 
     defaultConfig {
         applicationId = "com.danish.m2m"
-        minSdk = 23
+        minSdk = flutter.minSdkVersion
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
@@ -59,6 +59,5 @@ flutter {
 }
 
 dependencies {
-    implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.20") // ensure Kotlin stdlib
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4") // required for flutter_local_notifications
 }

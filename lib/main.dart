@@ -20,8 +20,15 @@ void main() async {
   runApp(
     MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => ChatViewModel()),
         ChangeNotifierProvider(create: (_) => AuthViewModel()),
+        ChangeNotifierProxyProvider<AuthViewModel, ChatViewModel>(
+          create: (_) => ChatViewModel(),
+          update: (_, authViewModel, chatViewModel) {
+            final resolvedChatViewModel = chatViewModel ?? ChatViewModel();
+            resolvedChatViewModel.handleAuthState(authViewModel.isAuthenticated);
+            return resolvedChatViewModel;
+          },
+        ),
       ],
       child: const MyApp(),
     ),
