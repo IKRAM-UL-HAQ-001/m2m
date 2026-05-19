@@ -23,7 +23,9 @@ import '../services/api_service.dart';
 import '../services/permission_service.dart';
 import '../services/websocket_service.dart';
 import '../utils/constants.dart';
+import '../utils/responsive.dart';
 import '../viewmodels/chat_viewmodel.dart';
+import '../widgets/forward_contact_picker_sheet.dart';
 import '../widgets/profile_quick_modal.dart';
 
 class ChatDetailScreen extends StatefulWidget {
@@ -349,6 +351,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     _blinkController.stop();
     _blinkController.reset();
     try {
+      final recordedDuration = _recordingDuration;
       final path = await _audioRecorder.stop();
       if (mounted) {
         setState(() {
@@ -359,7 +362,13 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
           _recordingCurrentOffset = Offset.zero;
         });
       }
-      if (path != null) _sendFileMessage(File(path), 'audio');
+      if (path != null) {
+        _sendFileMessage(
+          File(path),
+          type: 'audio',
+          duration: recordedDuration.inMilliseconds / 1000.0,
+        );
+      }
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -458,7 +467,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     }
   }
 
-  void _sendFileMessage(File file, [String? type]) async {
+  void _sendFileMessage(File file, {String? type, double? duration}) async {
     final clientUuid = ApiService.createClientUuid();
     final pendingText = switch (type) {
       'audio' => '🎤 Voice message',
@@ -493,6 +502,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
         file: file,
         type: type,
         replyTo: _replyingToMessage?.id,
+        duration: duration,
       );
       if (mounted) {
         setState(() {
@@ -543,7 +553,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     }
     final picker = ImagePicker();
     final picked = await picker.pickImage(source: source, imageQuality: 80);
-    if (picked != null) _sendFileMessage(File(picked.path), 'image');
+    if (picked != null) _sendFileMessage(File(picked.path), type: 'image');
   }
 
   void _pickVideo() async {
@@ -551,7 +561,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     if (!hasStorage) return;
     final picker = ImagePicker();
     final picked = await picker.pickVideo(source: ImageSource.gallery);
-    if (picked != null) _sendFileMessage(File(picked.path), 'video');
+    if (picked != null) _sendFileMessage(File(picked.path), type: 'video');
   }
 
   void _pickFile() async {
@@ -567,7 +577,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   void _pickAudio() async {
     final result = await FilePicker.platform.pickFiles(type: FileType.audio);
     if (result != null && result.files.single.path != null) {
-      _sendFileMessage(File(result.files.single.path!), 'audio');
+      _sendFileMessage(File(result.files.single.path!), type: 'audio');
     }
   }
 
@@ -788,9 +798,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
               title: const Text('Forward'),
               onTap: () {
                 Navigator.pop(ctx);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Forward UI coming soon')),
-                );
+                _forwardMessage(message);
               },
             ),
             ListTile(
@@ -895,6 +903,44 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     }
   }
 
+  void _forwardMessage(Message message) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => ForwardContactPickerSheet(
+        message: message,
+        onContactsSelected: (chatIds) async {
+          Navigator.pop(context);
+          await _sendForwardedMessage(message, chatIds);
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                chatIds.length == 1
+                    ? 'Message forwarded'
+                    : 'Message forwarded to ${chatIds.length} chats',
+              ),
+              backgroundColor: AppColors.primaryColor,
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _sendForwardedMessage(
+    Message message,
+    List<String> chatIds,
+  ) async {
+    for (final chatId in chatIds) {
+      await _apiService.forwardMessage(
+        originalMessageId: message.id,
+        toChatId: chatId,
+      );
+    }
+  }
+
   // ── helpers ──────────────────────────────────────────────────
 
   bool _isImageUrl(String url) {
@@ -935,30 +981,37 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
 
   @override
   Widget build(BuildContext context) {
+    Responsive.init(context);
     return Scaffold(
       resizeToAvoidBottomInset: true,
       appBar: _buildAppBar(),
-      body: Column(
-        children: [
-          Expanded(
-            child: GestureDetector(
-              onTap: () {
-                _focusNode.unfocus();
-                if (_showEmojiPicker) setState(() => _showEmojiPicker = false);
-              },
-              child: _buildChatArea(),
+      body: SafeArea(
+        top: false,
+        bottom: true,
+        child: Column(
+          children: [
+            Expanded(
+              child: GestureDetector(
+                onTap: () {
+                  _focusNode.unfocus();
+                  if (_showEmojiPicker) {
+                    setState(() => _showEmojiPicker = false);
+                  }
+                },
+                child: _buildChatArea(),
+              ),
             ),
-          ),
-          _buildComposerArea(),
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeOut,
-            height: _showEmojiPicker ? 280 : 0,
-            child: _showEmojiPicker
-                ? _buildEmojiPicker()
-                : const SizedBox.shrink(),
-          ),
-        ],
+            _buildComposerArea(),
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOut,
+              height: _showEmojiPicker ? Responsive.h(33).clamp(240, 300) : 0,
+              child: _showEmojiPicker
+                  ? _buildEmojiPicker()
+                  : const SizedBox.shrink(),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1149,9 +1202,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
         margin: const EdgeInsets.symmetric(vertical: 2),
         alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
         child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxWidth: MediaQuery.of(context).size.width * 0.75,
-          ),
+          constraints: BoxConstraints(maxWidth: Responsive.bubbleMaxWidth),
           child: Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
@@ -1192,6 +1243,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
                   ),
                 if (!isDeleted && message.replyToText != null)
                   _buildReplyQuote(message, isMe),
+                if (!isDeleted && message.isForwarded) _buildForwardedLabel(),
                 if (!isDeleted && isImage) _buildImageContent(message),
                 if (!isDeleted && isVideo) _buildVideoContent(message),
                 if (!isDeleted && isAudio) _buildAudioContent(message, isMe),
@@ -1238,6 +1290,27 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
           color: Colors.grey[700],
           fontStyle: FontStyle.italic,
         ),
+      ),
+    );
+  }
+
+  Widget _buildForwardedLabel() {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: const [
+          Icon(Icons.reply, size: 13, color: Colors.black45),
+          SizedBox(width: 4),
+          Text(
+            'Forwarded',
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.black45,
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1411,9 +1484,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   Widget _buildTick(MessageStatus state) {
     switch (state) {
       case MessageStatus.sending:
-        return const Icon(Icons.schedule, size: 13, color: Colors.black38);
+        return const Icon(Icons.access_time, size: 13, color: Colors.black38);
       case MessageStatus.sent:
-        return const Icon(Icons.done, size: 13, color: Colors.black38);
+        return const Icon(Icons.check, size: 13, color: Colors.black38);
       case MessageStatus.delivered:
         return const Icon(Icons.done_all, size: 13, color: Colors.black38);
       case MessageStatus.read:
@@ -1426,16 +1499,30 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   // ── composer ─────────────────────────────────────────────────
 
   Widget _buildComposerArea() {
-    if (_isLocked) return _buildLockedRecordingUI();
-    return Container(
-      color: const Color(0xFFF0F0F0),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (_replyingToMessage != null) _buildReplyPreview(),
-          _buildInputRow(),
-        ],
+    if (_isLocked) {
+      return SafeArea(
+        top: false,
+        left: false,
+        right: false,
+        bottom: true,
+        child: _buildLockedRecordingUI(),
+      );
+    }
+    return SafeArea(
+      top: false,
+      left: false,
+      right: false,
+      bottom: true,
+      child: Container(
+        color: const Color(0xFFF0F0F0),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_replyingToMessage != null) _buildReplyPreview(),
+            _buildInputRow(),
+          ],
+        ),
       ),
     );
   }

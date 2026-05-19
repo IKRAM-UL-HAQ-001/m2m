@@ -365,138 +365,151 @@ class _SettingsScreenState extends State<SettingsScreen> {
         backgroundColor: AppColors.primaryColor,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
-      body: _isLoadingProfile
-          ? const Center(child: CircularProgressIndicator())
-          : ListView(
-              children: [
-                // Profile Section
-                Container(
-                  padding: const EdgeInsets.symmetric(vertical: 20),
-                  child: Column(
-                    children: [
-                      GestureDetector(
-                        onTap: _pickAndUpdateProfilePicture,
-                        child: Stack(
-                          children: [
-                            CircleAvatar(
-                              radius: 50,
-                              backgroundColor: Colors.grey[200],
-                              backgroundImage: hasLocalImage
-                                  ? FileImage(File(_profilePictureUrl))
-                                  : hasNetworkImage
-                                  ? NetworkImage(_profilePictureUrl)
-                                        as ImageProvider
-                                  : null,
-                              child: (!hasLocalImage && !hasNetworkImage)
-                                  ? Icon(
-                                      Icons.person,
-                                      size: 50,
-                                      color: Colors.grey[400],
-                                    )
-                                  : null,
-                            ),
-                            Positioned(
-                              bottom: 0,
-                              right: 0,
-                              child: CircleAvatar(
-                                radius: 16,
-                                backgroundColor: AppColors.primaryColor,
-                                child: const Icon(
-                                  Icons.camera_alt,
-                                  size: 16,
-                                  color: Colors.white,
+      body: SafeArea(
+        top: false,
+        bottom: true,
+        child: _isLoadingProfile
+            ? const Center(child: CircularProgressIndicator())
+            : ListView(
+                children: [
+                  // Profile Section
+                  Container(
+                    padding: const EdgeInsets.symmetric(vertical: 20),
+                    child: Column(
+                      children: [
+                        GestureDetector(
+                          onTap: _pickAndUpdateProfilePicture,
+                          child: Stack(
+                            children: [
+                              CircleAvatar(
+                                radius: 50,
+                                backgroundColor: Colors.grey[200],
+                                backgroundImage: hasLocalImage
+                                    ? FileImage(File(_profilePictureUrl))
+                                    : hasNetworkImage
+                                    ? NetworkImage(_profilePictureUrl)
+                                          as ImageProvider
+                                    : null,
+                                child: (!hasLocalImage && !hasNetworkImage)
+                                    ? Icon(
+                                        Icons.person,
+                                        size: 50,
+                                        color: Colors.grey[400],
+                                      )
+                                    : null,
+                              ),
+                              Positioned(
+                                bottom: 0,
+                                right: 0,
+                                child: CircleAvatar(
+                                  radius: 16,
+                                  backgroundColor: AppColors.primaryColor,
+                                  child: const Icon(
+                                    Icons.camera_alt,
+                                    size: 16,
+                                    color: Colors.white,
+                                  ),
                                 ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 15),
-                      Text(
-                        _userName.isNotEmpty ? _userName : 'Set your name',
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
+                        const SizedBox(height: 15),
+                        Text(
+                          _userName.isNotEmpty ? _userName : 'Set your name',
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        _phoneNumber,
-                        style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        _currentAbout,
-                        style: TextStyle(fontSize: 13, color: Colors.grey[500]),
-                      ),
-                    ],
+                        const SizedBox(height: 4),
+                        Text(
+                          _phoneNumber,
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _currentAbout,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.grey[500],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                const Divider(),
+                  const Divider(),
 
-                // Edit Name
-                ListTile(
-                  leading: const Icon(
-                    Icons.person,
-                    color: AppColors.primaryColor,
+                  // Edit Name
+                  ListTile(
+                    leading: const Icon(
+                      Icons.person,
+                      color: AppColors.primaryColor,
+                    ),
+                    title: const Text('Name'),
+                    subtitle: Text(
+                      _userName.isNotEmpty ? _userName : 'Tap to set your name',
+                    ),
+                    trailing: const Icon(
+                      Icons.edit,
+                      color: Colors.grey,
+                      size: 20,
+                    ),
+                    onTap: _showEditNameDialog,
                   ),
-                  title: const Text('Name'),
-                  subtitle: Text(
-                    _userName.isNotEmpty ? _userName : 'Tap to set your name',
-                  ),
-                  trailing: const Icon(
-                    Icons.edit,
-                    color: Colors.grey,
-                    size: 20,
-                  ),
-                  onTap: _showEditNameDialog,
-                ),
-                const Divider(indent: 70),
+                  const Divider(indent: 70),
 
-                // About
-                ListTile(
-                  leading: const Icon(
-                    Icons.info_outline,
-                    color: AppColors.primaryColor,
+                  // About
+                  ListTile(
+                    leading: const Icon(
+                      Icons.info_outline,
+                      color: AppColors.primaryColor,
+                    ),
+                    title: const Text('About'),
+                    subtitle: Text(_currentAbout),
+                    trailing: const Icon(
+                      Icons.arrow_forward_ios,
+                      size: 16,
+                      color: Colors.grey,
+                    ),
+                    onTap: () => _showAboutPicker(context),
                   ),
-                  title: const Text('About'),
-                  subtitle: Text(_currentAbout),
-                  trailing: const Icon(
-                    Icons.arrow_forward_ios,
-                    size: 16,
-                    color: Colors.grey,
-                  ),
-                  onTap: () => _showAboutPicker(context),
-                ),
-                const Divider(indent: 70),
+                  const Divider(indent: 70),
 
-                // Phone (non-editable)
-                ListTile(
-                  leading: const Icon(
-                    Icons.phone,
-                    color: AppColors.primaryColor,
+                  // Phone (non-editable)
+                  ListTile(
+                    leading: const Icon(
+                      Icons.phone,
+                      color: AppColors.primaryColor,
+                    ),
+                    title: const Text('Phone'),
+                    subtitle: Text(
+                      _phoneNumber.isNotEmpty ? _phoneNumber : 'Not set',
+                    ),
                   ),
-                  title: const Text('Phone'),
-                  subtitle: Text(
-                    _phoneNumber.isNotEmpty ? _phoneNumber : 'Not set',
-                  ),
-                ),
-                const Divider(),
+                  const Divider(),
 
-                // Delete Account
-                ListTile(
-                  leading: const Icon(Icons.delete_forever, color: Colors.red),
-                  title: const Text(
-                    'Delete Account',
-                    style: TextStyle(color: Colors.red),
+                  // Delete Account
+                  ListTile(
+                    leading: const Icon(
+                      Icons.delete_forever,
+                      color: Colors.red,
+                    ),
+                    title: const Text(
+                      'Delete Account',
+                      style: TextStyle(color: Colors.red),
+                    ),
+                    subtitle: const Text(
+                      'Delete account and all data permanently',
+                    ),
+                    onTap: _showDeleteAccountDialog,
                   ),
-                  subtitle: const Text(
-                    'Delete account and all data permanently',
-                  ),
-                  onTap: _showDeleteAccountDialog,
-                ),
-              ],
-            ),
+                ],
+              ),
+      ),
     );
   }
 }

@@ -56,6 +56,7 @@ class PermissionService {
       if (result.isGranted || result.isLimited) return true;
     }
     // Fallback for older Android
+    if (!context.mounted) return false;
     return requestPhotos(context);
   }
 
@@ -73,6 +74,17 @@ class PermissionService {
     if (!status.isGranted) {
       await Permission.notification.request();
     }
+  }
+
+  static Future<void> requestAllPermissions() async {
+    await [
+      Permission.contacts,
+      Permission.camera,
+      Permission.microphone,
+      Permission.storage,
+      Permission.photos,
+      Permission.notification,
+    ].request();
   }
 
   static Future<bool> _request(

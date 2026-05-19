@@ -1,10 +1,24 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
-	<dict>
-		<key>NSContactsUsageDescription</key>
-		<string>M2M needs access to your contacts to show which friends are already on M2M.</string>
-		<key>CFBundleDevelopmentRegion</key>
+		<dict>
+			<key>NSContactsUsageDescription</key>
+			<string>M2M needs your contacts to show which friends are on M2M.</string>
+			<key>NSCameraUsageDescription</key>
+			<string>M2M needs camera access to take photos and videos to share.</string>
+			<key>NSMicrophoneUsageDescription</key>
+			<string>M2M needs microphone access to record voice messages.</string>
+			<key>NSPhotoLibraryUsageDescription</key>
+			<string>M2M needs photo library access to share photos and videos.</string>
+			<key>NSPhotoLibraryAddUsageDescription</key>
+			<string>M2M needs permission to save photos and videos to your library.</string>
+			<key>NSUserNotificationUsageDescription</key>
+			<string>M2M sends notifications for new messages and calls.</string>
+			<key>NSLocationWhenInUseUsageDescription</key>
+			<string>M2M needs location access to share your location in chats.</string>
+			<key>NSFaceIDUsageDescription</key>
+			<string>M2M uses Face ID to keep your chats secure.</string>
+			<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
 	<string>M2m</string>

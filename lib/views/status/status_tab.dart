@@ -28,71 +28,75 @@ class _StatusTabState extends State<StatusTab> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      body: Consumer<StatusViewModel>(
-        builder: (context, vm, _) {
-          if (vm.isLoading && !vm.hasMyStatus && vm.unseenGroups.isEmpty) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (widget.searchQuery.isNotEmpty) {
-            final groups = [...vm.unseenGroups, ...vm.seenGroups];
-            return SearchResultsList<StatusGroup>(
-              query: widget.searchQuery,
-              allItems: groups,
-              getSearchableText: (group) => group.owner.name,
-              buildTile: (group, isExact) => ContactStatusTile(
-                statusGroup: group,
-                isSeen: !group.hasUnseen,
-                highlightQuery: widget.searchQuery,
+      body: SafeArea(
+        top: false,
+        bottom: true,
+        child: Consumer<StatusViewModel>(
+          builder: (context, vm, _) {
+            if (vm.isLoading && !vm.hasMyStatus && vm.unseenGroups.isEmpty) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (widget.searchQuery.isNotEmpty) {
+              final groups = [...vm.unseenGroups, ...vm.seenGroups];
+              return SearchResultsList<StatusGroup>(
+                query: widget.searchQuery,
+                allItems: groups,
+                getSearchableText: (group) => group.owner.name,
+                buildTile: (group, isExact) => ContactStatusTile(
+                  statusGroup: group,
+                  isSeen: !group.hasUnseen,
+                  highlightQuery: widget.searchQuery,
+                ),
+              );
+            }
+            return RefreshIndicator(
+              onRefresh: () => vm.loadStatuses(),
+              child: CustomScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                slivers: [
+                  _sectionHeader('My status'),
+                  SliverToBoxAdapter(child: MyStatusTile(viewModel: vm)),
+                  _sectionHeader('Recent updates'),
+                  if (vm.unseenGroups.isEmpty)
+                    const SliverToBoxAdapter(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
+                        child: Text(
+                          'No recent updates',
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                      ),
+                    )
+                  else
+                    SliverList(
+                      delegate: SliverChildBuilderDelegate(
+                        (context, index) => ContactStatusTile(
+                          statusGroup: vm.unseenGroups[index],
+                        ),
+                        childCount: vm.unseenGroups.length,
+                      ),
+                    ),
+                  if (vm.seenGroups.isNotEmpty) ...[
+                    _sectionHeader('Viewed updates'),
+                    SliverList(
+                      delegate: SliverChildBuilderDelegate(
+                        (context, index) => ContactStatusTile(
+                          statusGroup: vm.seenGroups[index],
+                          isSeen: true,
+                        ),
+                        childCount: vm.seenGroups.length,
+                      ),
+                    ),
+                  ],
+                  const SliverToBoxAdapter(child: SizedBox(height: 92)),
+                ],
               ),
             );
-          }
-          return RefreshIndicator(
-            onRefresh: () => vm.loadStatuses(),
-            child: CustomScrollView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              slivers: [
-                _sectionHeader('My status'),
-                SliverToBoxAdapter(child: MyStatusTile(viewModel: vm)),
-                _sectionHeader('Recent updates'),
-                if (vm.unseenGroups.isEmpty)
-                  const SliverToBoxAdapter(
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 12,
-                      ),
-                      child: Text(
-                        'No recent updates',
-                        style: TextStyle(color: Colors.grey),
-                      ),
-                    ),
-                  )
-                else
-                  SliverList(
-                    delegate: SliverChildBuilderDelegate(
-                      (context, index) => ContactStatusTile(
-                        statusGroup: vm.unseenGroups[index],
-                      ),
-                      childCount: vm.unseenGroups.length,
-                    ),
-                  ),
-                if (vm.seenGroups.isNotEmpty) ...[
-                  _sectionHeader('Viewed updates'),
-                  SliverList(
-                    delegate: SliverChildBuilderDelegate(
-                      (context, index) => ContactStatusTile(
-                        statusGroup: vm.seenGroups[index],
-                        isSeen: true,
-                      ),
-                      childCount: vm.seenGroups.length,
-                    ),
-                  ),
-                ],
-                const SliverToBoxAdapter(child: SizedBox(height: 92)),
-              ],
-            ),
-          );
-        },
+          },
+        ),
       ),
       floatingActionButton: widget.searchQuery.isEmpty
           ? FloatingActionButton(

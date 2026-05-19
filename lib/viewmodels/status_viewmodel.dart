@@ -81,17 +81,31 @@ class StatusViewModel extends ChangeNotifier {
     String text, {
     String backgroundColor = '#6B00D7',
     int fontSize = 28,
+    String privacy = 'all_contacts',
+    List<String> userIds = const [],
   }) async {
     await _apiService.createTextStatus(
       text,
       backgroundColor: backgroundColor,
       fontSize: fontSize,
+      privacy: privacy,
+      userIds: userIds,
     );
     await loadStatuses();
   }
 
-  Future<void> createMediaStatus(File file, String statusType) async {
-    await _apiService.createMediaStatus(file, statusType);
+  Future<void> createMediaStatus(
+    File file,
+    String statusType, {
+    String privacy = 'all_contacts',
+    List<String> userIds = const [],
+  }) async {
+    await _apiService.createMediaStatus(
+      file,
+      statusType,
+      privacy: privacy,
+      userIds: userIds,
+    );
     await loadStatuses();
   }
 
@@ -123,6 +137,12 @@ class StatusViewModel extends ChangeNotifier {
 
   Future<List<StatusViewer>> fetchViewers(String statusId) {
     return _apiService.fetchStatusViewers(statusId);
+  }
+
+  Future<void> deleteStatus(String statusId) async {
+    await _apiService.deleteStatus(statusId);
+    _myStatuses = _myStatuses.where((status) => status.id != statusId).toList();
+    notifyListeners();
   }
 
   @override

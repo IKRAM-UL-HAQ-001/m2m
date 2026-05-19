@@ -10,6 +10,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/chat.dart';
+import '../models/contact_user.dart';
 import '../models/message.dart';
 import '../models/shared_media.dart';
 import '../models/user_status.dart';
@@ -465,6 +466,43 @@ class ApiService {
         .toList();
   }
 
+  Future<Map<String, dynamic>> getStatusPrivacy() async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('$baseUrl/status/privacy/'),
+      headers: headers,
+    );
+    return _decodeJsonResponse(response);
+  }
+
+  Future<void> updateStatusPrivacy({
+    required String privacy,
+    required List<String> exceptUserIds,
+    required List<String> onlyUserIds,
+  }) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('$baseUrl/status/privacy/'),
+      headers: headers,
+      body: json.encode({
+        'privacy': privacy,
+        'except_user_ids': exceptUserIds,
+        'only_user_ids': onlyUserIds,
+      }),
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      _throwApiError(response);
+    }
+  }
+
+  Future<List<ContactUser>> getAppContacts() async {
+    final result = await syncContacts();
+    return result.onAppContacts
+        .where((contact) => contact['id'] != null || contact['user_id'] != null)
+        .map((contact) => ContactUser.fromJson(contact))
+        .toList();
+  }
+
   Future<Message> sendMessage(
     String receiverId,
     String text, {
@@ -472,6 +510,7 @@ class ApiService {
     File? file,
     String? type,
     String? replyTo,
+    double? duration,
   }) async {
     final url = Uri.parse('$baseUrl/send/');
     final request = http.MultipartRequest('POST', url);
@@ -481,6 +520,9 @@ class ApiService {
     request.fields['client_uuid'] = clientUuid;
     if (replyTo != null) {
       request.fields['reply_to'] = replyTo;
+    }
+    if (duration != null) {
+      request.fields['duration'] = duration.toStringAsFixed(1);
     }
     // message_type is set below based on file extension when file is present
     if (file == null) {
@@ -601,16 +643,15 @@ class ApiService {
     }
   }
 
-  static Future<void> updateFcmToken(String token) async {
-    final api = ApiService();
-    final headers = await api._getHeaders();
+  Future<void> updateFcmToken(String token) async {
+    final headers = await _getHeaders();
     final response = await http.post(
-      Uri.parse('$authUrl/complete-profile/'),
+      Uri.parse('$authUrl/update-fcm-token/'),
       headers: headers,
       body: json.encode({'fcm_token': token}),
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      api._throwApiError(response);
+      _throwApiError(response);
     }
   }
 
@@ -709,6 +750,27 @@ class ApiService {
     }
   }
 
+  Future<Message> forwardMessage({
+    required String originalMessageId,
+    required String toChatId,
+  }) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('$baseUrl/forward/'),
+      headers: headers,
+      body: json.encode({
+        'message_id': int.parse(originalMessageId),
+        'chat_id': int.parse(toChatId),
+      }),
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      _throwApiError(response);
+    }
+    return Message.fromJson(
+      Map<String, dynamic>.from(json.decode(response.body)),
+    );
+  }
+
   Future<List<StatusGroup>> fetchStatusFeed() async {
     final headers = await _getHeaders();
     final response = await http.get(
@@ -741,6 +803,8 @@ class ApiService {
     String text, {
     String backgroundColor = '#6B00D7',
     int fontSize = 28,
+    String privacy = 'all_contacts',
+    List<String> userIds = const [],
   }) async {
     final headers = await _getHeaders();
     final response = await http.post(
@@ -751,6 +815,8 @@ class ApiService {
         'text_content': text,
         'background_color': backgroundColor,
         'font_size': fontSize,
+        'privacy': privacy,
+        'user_ids': userIds.map(int.parse).toList(),
       }),
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -761,11 +827,20 @@ class ApiService {
     );
   }
 
-  Future<UserStatus> createMediaStatus(File file, String statusType) async {
+  Future<UserStatus> createMediaStatus(
+    File file,
+    String statusType, {
+    String privacy = 'all_contacts',
+    List<String> userIds = const [],
+  }) async {
     final url = Uri.parse('$baseUrl/status/create/');
     final request = http.MultipartRequest('POST', url);
     request.headers.addAll(await _getHeaders(json: false));
     request.fields['status_type'] = statusType;
+    request.fields['privacy'] = privacy;
+    if (userIds.isNotEmpty) {
+      request.fields['user_ids'] = json.encode(userIds.map(int.parse).toList());
+    }
     request.files.add(
       await http.MultipartFile.fromPath('media_file', file.path),
     );
@@ -802,6 +877,17 @@ class ApiService {
     return List<dynamic>.from(json.decode(response.body))
         .map((item) => StatusViewer.fromJson(Map<String, dynamic>.from(item)))
         .toList();
+  }
+
+  Future<void> deleteStatus(String statusId) async {
+    final headers = await _getHeaders();
+    final response = await http.delete(
+      Uri.parse('$baseUrl/status/$statusId/delete/'),
+      headers: headers,
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      _throwApiError(response);
+    }
   }
 
   Future<List<SharedMedia>> getSharedMedia(

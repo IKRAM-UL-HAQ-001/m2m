@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -20,12 +21,14 @@ void main() {
             create: (_) => ChatViewModel(),
             update: (_, authViewModel, chatViewModel) {
               final resolvedChatViewModel = chatViewModel ?? ChatViewModel();
-              resolvedChatViewModel.handleAuthState(authViewModel.isAuthenticated);
+              resolvedChatViewModel.handleAuthState(
+                authViewModel.isAuthenticated,
+              );
               return resolvedChatViewModel;
             },
           ),
         ],
-        child: const MyApp(),
+        child: MyApp(navigatorKey: GlobalKey<NavigatorState>()),
       ),
     );
 

@@ -25,6 +25,28 @@ class AuthViewModel extends ChangeNotifier {
   final ApiService _apiService = ApiService();
   final SocketService _socketService = SocketService();
 
+  String _normalizeCountryCode(String countryCode) {
+    return countryCode.replaceAll(RegExp(r'\D'), '');
+  }
+
+  String _normalizeNationalPhone(String phoneNumber, String countryCode) {
+    final countryDigits = _normalizeCountryCode(countryCode);
+    var digits = phoneNumber.replaceAll(RegExp(r'\D'), '');
+    final raw = phoneNumber.trim();
+
+    if (digits.startsWith('00$countryDigits')) {
+      digits = digits.substring(countryDigits.length + 2);
+    } else if (raw.startsWith('+') && digits.startsWith(countryDigits)) {
+      digits = digits.substring(countryDigits.length);
+    }
+
+    while (digits.startsWith('0')) {
+      digits = digits.substring(1);
+    }
+
+    return digits;
+  }
+
   Future<void> checkAuthStatus() async {
     _isLoading = true;
     notifyListeners();
@@ -53,9 +75,18 @@ class AuthViewModel extends ChangeNotifier {
     String phoneNumber, {
     String countryCode = '1',
   }) async {
-    _currentPhoneNumber = phoneNumber;
-    _currentCountryCode = countryCode;
-    await _apiService.requestOtp(phoneNumber, '+$countryCode');
+    final normalizedCountryCode = _normalizeCountryCode(countryCode);
+    final normalizedPhoneNumber = _normalizeNationalPhone(
+      phoneNumber,
+      normalizedCountryCode,
+    );
+
+    _currentPhoneNumber = normalizedPhoneNumber;
+    _currentCountryCode = normalizedCountryCode;
+    await _apiService.requestOtp(
+      normalizedPhoneNumber,
+      '+$normalizedCountryCode',
+    );
     return true;
   }
 

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../utils/constants.dart';
+import '../utils/responsive.dart';
 import '../services/api_service.dart';
 import '../viewmodels/auth_viewmodel.dart';
 import '../viewmodels/chat_viewmodel.dart';
@@ -12,6 +13,7 @@ import 'linked_devices_screen.dart';
 import 'login_screen.dart';
 import 'select_contact_screen.dart';
 import 'settings_screen.dart';
+import 'status/status_privacy_settings_screen.dart';
 import 'status/status_tab.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -79,6 +81,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   @override
   Widget build(BuildContext context) {
+    Responsive.init(context);
     return PopScope(
       canPop: !_isSearching,
       onPopInvokedWithResult: (didPop, result) {
@@ -131,7 +134,15 @@ class _HomeScreenState extends State<HomeScreen>
                   PopupMenuButton<String>(
                     icon: const Icon(Icons.more_vert, color: Colors.white),
                     onSelected: (value) async {
-                      if (value == 'logout') {
+                      if (value == 'status_privacy') {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) =>
+                                const StatusPrivacySettingsScreen(),
+                          ),
+                        );
+                      } else if (value == 'logout') {
                         final authProvider = Provider.of<AuthViewModel>(
                           context,
                           listen: false,
@@ -169,18 +180,37 @@ class _HomeScreenState extends State<HomeScreen>
                         );
                       }
                     },
-                    itemBuilder: (context) => const [
-                      PopupMenuItem(
-                        value: 'new_contact',
-                        child: Text('New contact'),
-                      ),
-                      PopupMenuItem(
-                        value: 'linked_devices',
-                        child: Text('Linked devices'),
-                      ),
-                      PopupMenuItem(value: 'settings', child: Text('Settings')),
-                      PopupMenuItem(value: 'logout', child: Text('Logout')),
-                    ],
+                    itemBuilder: (context) {
+                      if (_currentTabIndex == 1) {
+                        return const [
+                          PopupMenuItem(
+                            value: 'status_privacy',
+                            child: Text('Status privacy'),
+                          ),
+                          PopupMenuItem(
+                            value: 'settings',
+                            child: Text('Settings'),
+                          ),
+                          PopupMenuItem(value: 'logout', child: Text('Logout')),
+                        ];
+                      }
+
+                      return const [
+                        PopupMenuItem(
+                          value: 'new_contact',
+                          child: Text('New contact'),
+                        ),
+                        PopupMenuItem(
+                          value: 'linked_devices',
+                          child: Text('Linked devices'),
+                        ),
+                        PopupMenuItem(
+                          value: 'settings',
+                          child: Text('Settings'),
+                        ),
+                        PopupMenuItem(value: 'logout', child: Text('Logout')),
+                      ];
+                    },
                   ),
                 ],
           bottom: TabBar(
@@ -234,13 +264,17 @@ class _HomeScreenState extends State<HomeScreen>
             ],
           ),
         ),
-        body: TabBarView(
-          controller: _tabController,
-          children: [
-            ChatsListView(searchQuery: _activeSearchQuery),
-            StatusTab(searchQuery: _activeSearchQuery),
-            CallsPlaceholderTab(searchQuery: _activeSearchQuery),
-          ],
+        body: SafeArea(
+          top: false,
+          bottom: true,
+          child: TabBarView(
+            controller: _tabController,
+            children: [
+              ChatsListView(searchQuery: _activeSearchQuery),
+              StatusTab(searchQuery: _activeSearchQuery),
+              CallsPlaceholderTab(searchQuery: _activeSearchQuery),
+            ],
+          ),
         ),
         floatingActionButton: _tabController.index == 0 && !_isSearching
             ? FloatingActionButton(

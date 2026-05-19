@@ -1,143 +1,210 @@
-import 'dart:developer';
+import 'dart:convert';
+
+import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:audioplayers/audioplayers.dart';
-import 'package:m2m/services/api_service.dart';
+
+import 'api_service.dart';
+
+@pragma('vm:entry-point')
+Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp();
+  await NotificationService().showRemoteMessageNotification(message);
+}
 
 class NotificationService {
-  static FirebaseMessaging get _messaging => FirebaseMessaging.instance;
-  static final FlutterLocalNotificationsPlugin _localNotifications = FlutterLocalNotificationsPlugin();
-  static final AudioPlayer _audioPlayer = AudioPlayer();
+  static final NotificationService _instance = NotificationService._internal();
 
-  static Future<void> _playSound() async {
-    try {
-      await _audioPlayer.play(AssetSource('sounds/notification.mp3'), mode: PlayerMode.lowLatency);
-    } catch (e) {
-      log('Error playing sound: $e');
-    }
+  factory NotificationService() => _instance;
+
+  NotificationService._internal();
+
+  final FirebaseMessaging _fcm = FirebaseMessaging.instance;
+  final FlutterLocalNotificationsPlugin _local =
+      FlutterLocalNotificationsPlugin();
+
+  static GlobalKey<NavigatorState>? navigatorKey;
+  bool _localNotificationsReady = false;
+
+  static Future<void> getTokenAndSave() {
+    return _instance._saveToken();
   }
 
-  static Future<void> initialize() async {
-    try {
-      // Request permission (iOS/Android 13+)
-      NotificationSettings settings = await _messaging.requestPermission(
-        alert: true,
-        badge: true,
-        sound: true,
-      );
+  static Future<void> showLocalNotification({
+    required String title,
+    required String body,
+    Map<String, dynamic> data = const {},
+  }) {
+    return _instance._showNotification(title: title, body: body, data: data);
+  }
 
-      if (settings.authorizationStatus == AuthorizationStatus.authorized) {
-        log('User granted permission');
+  Future<void> initialize({required GlobalKey<NavigatorState> navKey}) async {
+    navigatorKey = navKey;
+
+    try {
+      await _requestPermission();
+      await _setupLocalNotifications();
+
+      FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+
+      FirebaseMessaging.onMessage.listen((message) {
+        showRemoteMessageNotification(message);
+      });
+
+      FirebaseMessaging.onMessageOpenedApp.listen((message) {
+        _handleNotificationTap(message.data);
+      });
+
+      final initial = await _fcm.getInitialMessage();
+      if (initial != null) {
+        Future.delayed(const Duration(seconds: 1), () {
+          _handleNotificationTap(initial.data);
+        });
       }
 
-      // Android notification channel
-      const AndroidNotificationChannel channel = AndroidNotificationChannel(
-        'high_importance_channel_v2',
-        'High Importance Notifications',
-        description: 'This channel is used for important notifications.',
-        importance: Importance.max,
-        playSound: true,
-        enableVibration: true,
-      );
+      await _saveToken();
 
-      await _localNotifications
-          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
-          ?.createNotificationChannel(channel);
-
-      // Initialize local notifications
-      const AndroidInitializationSettings initializationSettingsAndroid = AndroidInitializationSettings('@mipmap/ic_launcher');
-      const InitializationSettings initializationSettings = InitializationSettings(android: initializationSettingsAndroid);
-      await _localNotifications.initialize(initializationSettings);
-
-      // Handle background messages
-      FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-
-      // Handle foreground messages - suppress display since WebSocket handles in-app notifications.
-      // FCM foreground messages would duplicate the WebSocket notification.
-      FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-        log("Foreground FCM message received (suppressed): ${message.messageId}");
+      _fcm.onTokenRefresh.listen((token) {
+        _uploadToken(token);
       });
     } catch (e) {
-      log("Error during NotificationService.initialize: $e");
+      debugPrint('Notification initialization error: $e');
     }
   }
 
-  static Future<void> showLocalNotification({required String title, required String body}) async {
-    const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-      'high_importance_channel_v2',
-      'High Importance Notifications',
-      importance: Importance.max,
-      priority: Priority.high,
+  Future<void> _requestPermission() async {
+    await _fcm.requestPermission(
+      alert: true,
+      badge: true,
+      sound: true,
+      provisional: false,
+    );
+
+    await _fcm.setForegroundNotificationPresentationOptions(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+  }
+
+  Future<void> _setupLocalNotifications() async {
+    if (_localNotificationsReady) return;
+
+    const androidSettings = AndroidInitializationSettings(
+      '@mipmap/ic_launcher',
+    );
+    const iosSettings = DarwinInitializationSettings(
+      requestAlertPermission: true,
+      requestBadgePermission: true,
+      requestSoundPermission: true,
+    );
+    const initSettings = InitializationSettings(
+      android: androidSettings,
+      iOS: iosSettings,
+    );
+
+    await _local.initialize(
+      initSettings,
+      onDidReceiveNotificationResponse: (details) {
+        final payload = details.payload;
+        if (payload == null || payload.isEmpty) return;
+        try {
+          final data = Map<String, dynamic>.from(jsonDecode(payload));
+          _handleNotificationTap(data);
+        } catch (e) {
+          debugPrint('Notification payload decode error: $e');
+        }
+      },
+    );
+
+    const channel = AndroidNotificationChannel(
+      'm2m_messages',
+      'M2M Messages',
+      description: 'New message notifications',
+      importance: Importance.high,
       playSound: true,
       enableVibration: true,
     );
 
-    const NotificationDetails details = NotificationDetails(android: androidDetails);
-    await _localNotifications.show(
-      DateTime.now().millisecond,
-      title,
-      body,
-      details,
-    );
+    await _local
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >()
+        ?.createNotificationChannel(channel);
+
+    _localNotificationsReady = true;
   }
 
-  static Future<void> getTokenAndSave() async {
-    String? token = await _messaging.getToken();
-    if (token != null) {
-      await ApiService.updateFcmToken(token);
-    }
-  }
-}
-
-// Global background handler
-@pragma('vm:entry-point')
-Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  log("Handling a background message: ${message.messageId}");
-
-  // Only show if there's no automatic notification from FCM
-  // (usually happens for data-only messages)
-  if (message.notification == null) {
-    const AndroidNotificationChannel channel = AndroidNotificationChannel(
-      'high_importance_channel_v2',
-      'High Importance Notifications',
-      description: 'This channel is used for important notifications.',
-      importance: Importance.max,
-    );
-
-    final FlutterLocalNotificationsPlugin localNotifications = FlutterLocalNotificationsPlugin();
-
-    // Re-initialize for background process if needed
-    const AndroidInitializationSettings initializationSettingsAndroid = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const InitializationSettings initializationSettings = InitializationSettings(android: initializationSettingsAndroid);
-    await localNotifications.initialize(initializationSettings);
-
-    final AudioPlayer backgroundAudioPlayer = AudioPlayer();
-    try {
-      await backgroundAudioPlayer.play(AssetSource('sounds/notification.mp3'), mode: PlayerMode.lowLatency);
-    } catch (e) {
-      log('Error playing background sound: $e');
-    }
-
+  Future<void> showRemoteMessageNotification(RemoteMessage message) async {
+    final notification = message.notification;
     final data = message.data;
-    final title = data['title'] ?? 'New Message';
-    final body = data['body'] ?? 'You have a new message';
+    final title = notification?.title ?? data['title'] ?? 'New message';
+    final body = notification?.body ?? data['body'] ?? 'You have a new message';
 
-    await localNotifications.show(
-      message.hashCode,
+    await _showNotification(title: title, body: body, data: data);
+  }
+
+  Future<void> _showNotification({
+    required String title,
+    required String body,
+    required Map<String, dynamic> data,
+  }) async {
+    await _setupLocalNotifications();
+
+    await _local.show(
+      DateTime.now().millisecondsSinceEpoch ~/ 1000,
       title,
       body,
       NotificationDetails(
         android: AndroidNotificationDetails(
-          channel.id,
-          channel.name,
-          channelDescription: channel.description,
-          importance: Importance.max,
+          'm2m_messages',
+          'M2M Messages',
+          importance: Importance.high,
           priority: Priority.high,
           icon: '@mipmap/ic_launcher',
-          playSound: true,
-          enableVibration: true,
+          color: const Color(0xFF6B00D7),
+          styleInformation: BigTextStyleInformation(body),
+        ),
+        iOS: const DarwinNotificationDetails(
+          presentAlert: true,
+          presentBadge: true,
+          presentSound: true,
         ),
       ),
+      payload: jsonEncode(data),
     );
+  }
+
+  void _handleNotificationTap(Map<String, dynamic> data) {
+    final chatId = data['chat_id']?.toString();
+    final senderId = data['sender_id']?.toString();
+    final navState = navigatorKey?.currentState;
+
+    if (chatId == null || navState == null) return;
+
+    navState.pushNamed(
+      '/chat',
+      arguments: {'chat_id': chatId, 'sender_id': senderId},
+    );
+  }
+
+  Future<void> _saveToken() async {
+    try {
+      final token = await _fcm.getToken();
+      if (token != null) {
+        await _uploadToken(token);
+      }
+    } catch (e) {
+      debugPrint('FCM token error: $e');
+    }
+  }
+
+  Future<void> _uploadToken(String token) async {
+    try {
+      await ApiService().updateFcmToken(token);
+    } catch (e) {
+      debugPrint('FCM token upload error: $e');
+    }
   }
 }

@@ -124,7 +124,10 @@ class SocketService extends ChangeNotifier {
       final rawData = Map<String, dynamic>.from(json.decode(data));
       final event = rawData['type'] ?? rawData['event'];
       if (event == 'message_status' || event == 'status_update') {
-        _messageStatusController.add(MessageStatusUpdate.fromJson(rawData));
+        final payload = rawData['payload'] is Map
+            ? Map<String, dynamic>.from(rawData['payload'])
+            : rawData;
+        _messageStatusController.add(MessageStatusUpdate.fromJson(payload));
         return;
       }
       if (event == 'typing') {

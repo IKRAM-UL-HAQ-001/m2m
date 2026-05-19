@@ -1,3 +1,4 @@
+import 'message.dart';
 import '../utils/url_helper.dart';
 
 class Chat {
@@ -9,6 +10,7 @@ class Chat {
   final String avatarUrl;
   final String lastMessage;
   final String lastMessageType;
+  final MessageStatus lastMessageStatus;
   final String? lastMessageFileUrl;
   final DateTime time;
   final int unreadCount;
@@ -23,6 +25,7 @@ class Chat {
     required this.avatarUrl,
     required this.lastMessage,
     required this.lastMessageType,
+    this.lastMessageStatus = MessageStatus.sent,
     this.lastMessageFileUrl,
     required this.time,
     this.unreadCount = 0,
@@ -48,6 +51,9 @@ class Chat {
       ),
       lastMessage: lastMsg['content'] ?? '',
       lastMessageType: lastMsg['message_type'] ?? 'text',
+      lastMessageStatus: MessageStatus.fromString(
+        json['last_message_status'] ?? lastMsg['status'],
+      ),
       lastMessageFileUrl: lastMsg['file_url'],
       time: json['last_activity'] != null
           ? DateTime.parse(json['last_activity']).toLocal()

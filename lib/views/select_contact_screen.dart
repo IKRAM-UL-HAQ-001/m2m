@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models/chat.dart';
+import '../models/message.dart';
 import '../services/api_service.dart';
 import '../utils/constants.dart';
 import '../utils/url_helper.dart';
@@ -228,6 +229,7 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
           avatarUrl: profilePic,
           lastMessage: 'Start a conversation',
           lastMessageType: 'text',
+          lastMessageStatus: MessageStatus.sent,
           lastMessageFileUrl: null,
           time: DateTime.now(),
           isOnline: user['is_online'] == true,

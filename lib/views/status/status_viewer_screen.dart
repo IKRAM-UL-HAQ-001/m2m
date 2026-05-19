@@ -20,16 +20,18 @@ class StatusViewerScreen extends StatefulWidget {
 class _StatusViewerScreenState extends State<StatusViewerScreen> {
   Timer? _timer;
   VideoPlayerController? _videoController;
+  late List<UserStatus> _statuses;
   int _currentIndex = 0;
   double _progress = 0;
   bool _isPaused = false;
 
-  UserStatus get _currentStatus => widget.statusGroup.statuses[_currentIndex];
+  UserStatus get _currentStatus => _statuses[_currentIndex];
   bool get _isMyStatus => widget.statusGroup.isMine;
 
   @override
   void initState() {
     super.initState();
+    _statuses = List<UserStatus>.from(widget.statusGroup.statuses);
     _showCurrentStatus();
   }
 
@@ -42,7 +44,7 @@ class _StatusViewerScreenState extends State<StatusViewerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.statusGroup.statuses.isEmpty) {
+    if (_statuses.isEmpty) {
       return const Scaffold(
         backgroundColor: Colors.black,
         body: SizedBox.shrink(),
@@ -64,7 +66,7 @@ class _StatusViewerScreenState extends State<StatusViewerScreen> {
               right: 8,
               child: Row(
                 children: List.generate(
-                  widget.statusGroup.statuses.length,
+                  _statuses.length,
                   (index) => Expanded(
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 2),
@@ -130,6 +132,26 @@ class _StatusViewerScreenState extends State<StatusViewerScreen> {
                     icon: const Icon(Icons.close, color: Colors.white),
                     onPressed: () => Navigator.pop(context),
                   ),
+                  if (_isMyStatus)
+                    PopupMenuButton<String>(
+                      icon: const Icon(Icons.more_vert, color: Colors.white),
+                      color: Colors.white,
+                      onSelected: (value) {
+                        if (value == 'delete') _confirmDeleteCurrentStatus();
+                      },
+                      itemBuilder: (context) => const [
+                        PopupMenuItem(
+                          value: 'delete',
+                          child: Row(
+                            children: [
+                              Icon(Icons.delete_outline, color: Colors.red),
+                              SizedBox(width: 10),
+                              Text('Delete'),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                 ],
               ),
             ),
@@ -310,7 +332,7 @@ class _StatusViewerScreenState extends State<StatusViewerScreen> {
   }
 
   void _nextStatus() {
-    if (_currentIndex < widget.statusGroup.statuses.length - 1) {
+    if (_currentIndex < _statuses.length - 1) {
       setState(() {
         _currentIndex++;
         _progress = 0;
@@ -390,6 +412,57 @@ class _StatusViewerScreenState extends State<StatusViewerScreen> {
         );
       },
     ).whenComplete(_resumeTimer);
+  }
+
+  Future<void> _confirmDeleteCurrentStatus() async {
+    _pauseTimer();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete status?'),
+        content: const Text('This status update will be removed.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await _deleteCurrentStatus();
+    } else {
+      _resumeTimer();
+    }
+  }
+
+  Future<void> _deleteCurrentStatus() async {
+    final statusId = _currentStatus.id;
+    try {
+      await context.read<StatusViewModel>().deleteStatus(statusId);
+      if (!mounted) return;
+      setState(() {
+        _statuses.removeWhere((status) => status.id == statusId);
+        if (_currentIndex >= _statuses.length) {
+          _currentIndex = _statuses.isEmpty ? 0 : _statuses.length - 1;
+        }
+      });
+      if (_statuses.isEmpty) {
+        Navigator.pop(context);
+        return;
+      }
+      _showCurrentStatus();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not delete status: $e')));
+      _resumeTimer();
+    }
   }
 
   Color _parseColor(String value) {

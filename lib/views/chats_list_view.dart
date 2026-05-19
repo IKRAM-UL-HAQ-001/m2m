@@ -27,42 +27,46 @@ class ChatsListView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<ChatViewModel>(
-      builder: (context, chatViewModel, _) {
-        if (chatViewModel.isLoading && chatViewModel.chats.isEmpty) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        if (chatViewModel.chats.isEmpty) {
-          return const Center(
-            child: Text(
-              'No chats yet.\nTap the message icon to start one.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey, fontSize: 15),
+    return SafeArea(
+      top: false,
+      bottom: true,
+      child: Consumer<ChatViewModel>(
+        builder: (context, chatViewModel, _) {
+          if (chatViewModel.isLoading && chatViewModel.chats.isEmpty) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (chatViewModel.chats.isEmpty) {
+            return const Center(
+              child: Text(
+                'No chats yet.\nTap the message icon to start one.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey, fontSize: 15),
+              ),
+            );
+          }
+          if (searchQuery.isNotEmpty) {
+            return SearchResultsList<Chat>(
+              query: searchQuery,
+              allItems: chatViewModel.chats,
+              getSearchableText: (chat) => chat.name,
+              buildTile: (chat, isExact) =>
+                  _buildChatTile(context, chat, highlightQuery: searchQuery),
+            );
+          }
+          return RefreshIndicator(
+            onRefresh: () => chatViewModel.fetchChats(),
+            child: ListView.separated(
+              itemCount: chatViewModel.chats.length,
+              separatorBuilder: (context, index) =>
+                  const Divider(height: 0, indent: 72),
+              itemBuilder: (context, index) {
+                final chat = chatViewModel.chats[index];
+                return _buildChatTile(context, chat);
+              },
             ),
           );
-        }
-        if (searchQuery.isNotEmpty) {
-          return SearchResultsList<Chat>(
-            query: searchQuery,
-            allItems: chatViewModel.chats,
-            getSearchableText: (chat) => chat.name,
-            buildTile: (chat, isExact) =>
-                _buildChatTile(context, chat, highlightQuery: searchQuery),
-          );
-        }
-        return RefreshIndicator(
-          onRefresh: () => chatViewModel.fetchChats(),
-          child: ListView.separated(
-            itemCount: chatViewModel.chats.length,
-            separatorBuilder: (context, index) =>
-                const Divider(height: 0, indent: 72),
-            itemBuilder: (context, index) {
-              final chat = chatViewModel.chats[index];
-              return _buildChatTile(context, chat);
-            },
-          ),
-        );
-      },
+        },
+      ),
     );
   }
 
