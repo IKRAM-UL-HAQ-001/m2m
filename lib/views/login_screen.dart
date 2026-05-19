@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../services/api_service.dart';
 import '../utils/constants.dart';
 import '../viewmodels/auth_viewmodel.dart';
 import 'otp_screen.dart';
@@ -25,30 +26,33 @@ class _LoginScreenState extends State<LoginScreen> {
   void _requestOtp() async {
     if (_phoneController.text.isNotEmpty) {
       final authProvider = Provider.of<AuthViewModel>(context, listen: false);
-      // Pass the actual country code prefix
-      bool success = await authProvider.requestOtp(
-        _phoneController.text,
-        countryCode: _countryCode,
-      );
-      if (success && mounted) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => const OtpScreen()),
+      try {
+        bool success = await authProvider.requestOtp(
+          _phoneController.text,
+          countryCode: _countryCode,
         );
-      } else if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Failed to request OTP. Make sure backend is running.',
-            ),
-          ),
-        );
+        if (success && mounted) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const OtpScreen()),
+          );
+        }
+      } on ApiException catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+        }
       }
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter your phone number')),
       );
     }
+  }
+
+  @override
+  void dispose() {
+    _phoneController.dispose();
+    super.dispose();
   }
 
   @override
@@ -67,12 +71,6 @@ class _LoginScreenState extends State<LoginScreen> {
         backgroundColor: Colors.white,
         elevation: 0,
         centerTitle: true,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.more_vert, color: Colors.grey),
-            onPressed: () {},
-          ),
-        ],
       ),
       body: Column(
         children: [

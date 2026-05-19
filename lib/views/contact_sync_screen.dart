@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../services/api_service.dart';
 import '../utils/constants.dart';
 import 'home_screen.dart';
 import 'responsive_layout.dart';
@@ -13,30 +15,63 @@ class ContactSyncScreen extends StatefulWidget {
 
 class _ContactSyncScreenState extends State<ContactSyncScreen> {
   bool _isSyncing = false;
+  final ApiService _apiService = ApiService();
 
-  void _runSync() async {
+  Future<void> _runSync() async {
     setState(() => _isSyncing = true);
-    // Simulate sync
-    await Future.delayed(const Duration(seconds: 3));
+    try {
+      await _apiService.syncContacts();
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(e.message)));
+        setState(() => _isSyncing = false);
+      }
+      return;
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not sync contacts. Please try again.'),
+          ),
+        );
+        setState(() => _isSyncing = false);
+      }
+      return;
+    }
 
     if (mounted) {
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(
-          builder: (context) => const ResponsiveLayout(
-            mobileLayout: HomeScreen(),
-            webLayout: WebScreenLayout(),
-          ),
-        ),
-        (route) => false,
-      );
+      _navigateToHome();
     }
+  }
+
+  void _skipSync() {
+    _navigateToHome();
+  }
+
+  void _navigateToHome() {
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const ResponsiveLayout(
+          mobileLayout: HomeScreen(),
+          webLayout: WebScreenLayout(),
+        ),
+      ),
+      (route) => false,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        foregroundColor: Colors.black,
+      ),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 30),
@@ -50,13 +85,13 @@ class _ContactSyncScreenState extends State<ContactSyncScreen> {
               ),
               const SizedBox(height: 30),
               const Text(
-                "Find your contacts on m2m",
+                'Find your contacts on m2m',
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 20),
               Text(
-                "m2m will securely sync your contacts to help you find people you know. This will be stored on our servers to help you connect with your friends.",
+                'Allow contact access to find existing M2M users and keep your chat list relevant.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.grey[600]),
               ),
@@ -67,7 +102,7 @@ class _ContactSyncScreenState extends State<ContactSyncScreen> {
                     CircularProgressIndicator(color: AppColors.primaryColor),
                     SizedBox(height: 20),
                     Text(
-                      "Syncing contacts...",
+                      'Syncing contacts...',
                       style: TextStyle(
                         color: AppColors.primaryColor,
                         fontWeight: FontWeight.bold,
@@ -83,29 +118,22 @@ class _ContactSyncScreenState extends State<ContactSyncScreen> {
                   ),
                   onPressed: _runSync,
                   child: const Text(
-                    "CONTINUE",
+                    'CONTINUE',
                     style: TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
                 ),
+                const SizedBox(height: 10),
                 TextButton(
-                  onPressed: () {
-                    Navigator.pushAndRemoveUntil(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const ResponsiveLayout(
-                          mobileLayout: HomeScreen(),
-                          webLayout: WebScreenLayout(),
-                        ),
-                      ),
-                      (route) => false,
-                    );
-                  },
+                  onPressed: _skipSync,
                   child: const Text(
-                    "NOT NOW",
-                    style: TextStyle(color: AppColors.primaryColor),
+                    'SKIP',
+                    style: TextStyle(
+                      color: Colors.grey,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
               ],

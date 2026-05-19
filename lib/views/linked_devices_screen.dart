@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../services/api_service.dart';
 import '../viewmodels/auth_viewmodel.dart';
 import '../utils/constants.dart';
 import 'qr_scanner_screen.dart';
@@ -59,19 +60,26 @@ class LinkedDevicesScreen extends StatelessWidget {
                     MaterialPageRoute(builder: (context) => const QRScannerScreen()),
                   );
                   if (result != null && context.mounted) {
-                    final authViewModel = Provider.of<AuthViewModel>(context, listen: false);
-                    final success = await authViewModel.linkDevice(result.toString());
-                    
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(success ? 'Device linked successfully!' : 'Failed to link device.'),
-                          backgroundColor: success ? AppColors.primaryColor : Colors.red,
-                        ),
-                      );
+                    try {
+                      final authViewModel = Provider.of<AuthViewModel>(context, listen: false);
+                      final success = await authViewModel.linkDevice(result.toString());
+
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(success ? 'Device linked successfully!' : 'Failed to link device.'),
+                            backgroundColor: success ? AppColors.primaryColor : Colors.red,
+                          ),
+                        );
+                      }
+                    } on ApiException catch (e) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text(e.message), backgroundColor: Colors.red),
+                        );
+                      }
                     }
                   }
-
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primaryColor,

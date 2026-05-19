@@ -53,12 +53,15 @@ class ChatViewModel extends ChangeNotifier {
       id: chat.id,
       receiverId: chat.receiverId,
       name: chat.name,
+      phone: chat.phone,
+      about: chat.about,
       avatarUrl: chat.avatarUrl,
       lastMessage: chat.lastMessage,
       lastMessageType: chat.lastMessageType,
       lastMessageFileUrl: chat.lastMessageFileUrl,
       time: chat.time,
       unreadCount: 0,
+      isOnline: chat.isOnline,
     );
     notifyListeners();
   }
@@ -75,12 +78,15 @@ class ChatViewModel extends ChangeNotifier {
         id: message.chatId, // Update the ID too, in case it was a placeholder
         receiverId: chat.receiverId,
         name: chat.name,
+        phone: chat.phone,
+        about: chat.about,
         avatarUrl: chat.avatarUrl,
         lastMessage: message.text,
         lastMessageType: message.type,
         lastMessageFileUrl: message.fileUrl,
         time: message.time,
         unreadCount: nextUnreadCount,
+        isOnline: chat.isOnline,
       );
       // Move to top
       final updatedChat = _chats.removeAt(index);

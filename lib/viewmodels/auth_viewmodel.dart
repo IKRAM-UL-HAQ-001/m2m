@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
 import '../services/api_service.dart';
 import '../services/notification_service.dart';
 import '../services/websocket_service.dart';
@@ -8,12 +11,16 @@ class AuthViewModel extends ChangeNotifier {
   bool _isAuthenticated = false;
   bool _isLoading = true;
   String _currentPhoneNumber = '';
+  String _currentCountryCode = '1';
+  String? _linkToken;
+  Timer? _linkPollingTimer;
+  int _linkCountdown = 300;
 
   bool get isAuthenticated => _isAuthenticated;
   bool get isLoading => _isLoading;
   String get currentPhoneNumber => _currentPhoneNumber;
-  String? _linkToken;
   String? get linkToken => _linkToken;
+  int get linkCountdown => _linkCountdown;
 
   final ApiService _apiService = ApiService();
   final SocketService _socketService = SocketService();
@@ -21,68 +28,110 @@ class AuthViewModel extends ChangeNotifier {
   Future<void> checkAuthStatus() async {
     _isLoading = true;
     notifyListeners();
-
-    // Simulate basic splash screen loading delay
-    await Future.delayed(const Duration(seconds: 2));
-
     final prefs = await SharedPreferences.getInstance();
     _isAuthenticated = prefs.getBool('isLoggedIn') ?? false;
     ApiService.currentUserId = prefs.getString('user_id');
-
     if (_isAuthenticated) {
-      await _socketService.connect();
-      await NotificationService.getTokenAndSave();
+      try {
+        await _socketService.connect();
+      } catch (e) {
+        debugPrint('WebSocket connect failed: $e');
+      }
+      try {
+        await NotificationService.getTokenAndSave();
+      } catch (e) {
+        debugPrint('FCM token save failed (non-fatal): $e');
+      }
     } else {
       _socketService.disconnect();
     }
-
     _isLoading = false;
     notifyListeners();
   }
 
-  Future<bool> requestOtp(String phoneNumber, {String countryCode = '1'}) async {
+  Future<bool> requestOtp(
+    String phoneNumber, {
+    String countryCode = '1',
+  }) async {
     _currentPhoneNumber = phoneNumber;
-    return await _apiService.requestOtp(phoneNumber, "+$countryCode");
+    _currentCountryCode = countryCode;
+    await _apiService.requestOtp(phoneNumber, '+$countryCode');
+    return true;
   }
 
   Future<bool> verifyOtp(String otp) async {
-    final result = await _apiService.verifyOtp(_currentPhoneNumber, otp);
-    if (result != null && result.containsKey('access')) {
+    final result = await _apiService.verifyOtp(
+      _currentPhoneNumber,
+      '+$_currentCountryCode',
+      otp,
+    );
+    if (result.containsKey('access')) {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('access_token', result['access']);
       await prefs.setString('refresh_token', result['refresh']);
-      
-      // Save userId
       if (result['user'] != null) {
         final uid = result['user']['id'].toString();
         ApiService.currentUserId = uid;
         await prefs.setString('user_id', uid);
+        if (result['user']['phone_number'] != null) {
+          await prefs.setString(
+            'user_phone',
+            result['user']['phone_number'].toString(),
+          );
+        }
+        if (result['user']['name'] != null &&
+            result['user']['name'].toString().isNotEmpty) {
+          await prefs.setString('user_name', result['user']['name'].toString());
+        }
+        if (result['user']['about'] != null &&
+            result['user']['about'].toString().isNotEmpty) {
+          await prefs.setString(
+            'user_about',
+            result['user']['about'].toString(),
+          );
+        }
+        if (result['user']['profile_picture'] != null &&
+            result['user']['profile_picture'].toString().isNotEmpty) {
+          await prefs.setString(
+            'user_profile_picture',
+            result['user']['profile_picture'].toString(),
+          );
+        }
       }
-      
-      // If user already has a name, they might be returning
-      if (result['user'] != null && result['user']['name'] != null && result['user']['name'].toString().isNotEmpty) {
+      if (result['user'] != null &&
+          result['user']['name'] != null &&
+          result['user']['name'].toString().isNotEmpty) {
         await prefs.setBool('isLoggedIn', true);
         _isAuthenticated = true;
         await _socketService.connect();
         await NotificationService.getTokenAndSave();
       }
-      
       notifyListeners();
       return true;
     }
     return false;
   }
 
-  Future<bool> completeProfile(String name, String? imagePath) async {
-    final success = await _apiService.completeProfile(name, imagePath);
+  Future<bool> completeProfile(
+    String name,
+    String? imagePath, {
+    String? about,
+  }) async {
+    final success = await _apiService.completeProfile(
+      name,
+      imagePath,
+      about: about,
+    );
     if (success) {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('isLoggedIn', true);
+      await prefs.setString('user_name', name);
+      if (about != null) {
+        await prefs.setString('user_about', about);
+      }
       _isAuthenticated = true;
-      
       await _socketService.connect();
       await NotificationService.getTokenAndSave();
-      
       notifyListeners();
       return true;
     }
@@ -94,44 +143,77 @@ class AuthViewModel extends ChangeNotifier {
     await prefs.clear();
     ApiService.currentUserId = null;
     _linkToken = null;
+    _linkPollingTimer?.cancel();
     _isAuthenticated = false;
     _socketService.disconnect();
     notifyListeners();
   }
 
   Future<void> startWebLinking() async {
+    _linkPollingTimer?.cancel();
     _linkToken = await _apiService.generateLinkToken();
+    _linkCountdown = 300;
     notifyListeners();
-    if (_linkToken != null) {
-      _pollForLinking();
-    }
+    _startBoundedLinkPolling();
   }
 
-  void _pollForLinking() async {
-    while (_linkToken != null && !_isAuthenticated) {
-      await Future.delayed(const Duration(seconds: 3));
-      final status = await _apiService.checkLinkStatus(_linkToken!);
-      if (status != null && status['is_active'] == true) {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('access_token', status['access']);
-        await prefs.setString('refresh_token', status['refresh']);
-        
-        if (status['user'] != null) {
-          final uid = status['user']['id'].toString();
-          ApiService.currentUserId = uid;
-          await prefs.setString('user_id', uid);
-          await prefs.setBool('isLoggedIn', true);
-          _isAuthenticated = true;
-          _linkToken = null;
-          await _socketService.connect();
-          notifyListeners();
-          break;
+  void _startBoundedLinkPolling() {
+    int retries = 0;
+    _linkPollingTimer = Timer.periodic(const Duration(seconds: 2), (
+      timer,
+    ) async {
+      _linkCountdown -= 2;
+      if (_linkCountdown <= 0 || _linkToken == null || _isAuthenticated) {
+        timer.cancel();
+        if (!_isAuthenticated) {
+          await startWebLinking();
+        }
+        return;
+      }
+      notifyListeners();
+
+      try {
+        final status = await _apiService.checkLinkStatus(_linkToken!);
+        retries = 0;
+        if (status['is_active'] == true) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('access_token', status['access']);
+          await prefs.setString('refresh_token', status['refresh']);
+          if (status['user'] != null) {
+            final uid = status['user']['id'].toString();
+            ApiService.currentUserId = uid;
+            await prefs.setString('user_id', uid);
+            if (status['user']['about'] != null &&
+                status['user']['about'].toString().isNotEmpty) {
+              await prefs.setString(
+                'user_about',
+                status['user']['about'].toString(),
+              );
+            }
+            await prefs.setBool('isLoggedIn', true);
+            _isAuthenticated = true;
+            _linkToken = null;
+            timer.cancel();
+            await _socketService.connect();
+            notifyListeners();
+          }
+        }
+      } catch (_) {
+        retries += 1;
+        if (retries >= 5) {
+          timer.cancel();
         }
       }
-    }
+    });
   }
 
   Future<bool> linkDevice(String token) async {
-    return await _apiService.activateLinkToken(token);
+    return _apiService.activateLinkToken(token);
+  }
+
+  @override
+  void dispose() {
+    _linkPollingTimer?.cancel();
+    super.dispose();
   }
 }

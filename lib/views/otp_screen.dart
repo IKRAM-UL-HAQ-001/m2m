@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../services/api_service.dart';
 import '../utils/constants.dart';
 import '../viewmodels/auth_viewmodel.dart';
 import 'complete_profile_screen.dart';
@@ -20,35 +21,43 @@ class _OtpScreenState extends State<OtpScreen> {
   void _verifyOtp() async {
     if (_otpController.text.isNotEmpty) {
       final authProvider = Provider.of<AuthViewModel>(context, listen: false);
-      bool success = await authProvider.verifyOtp(_otpController.text);
+      try {
+        bool success = await authProvider.verifyOtp(_otpController.text);
 
-      if (success && mounted) {
-        if (authProvider.isAuthenticated) {
-          Navigator.pushAndRemoveUntil(
-            context,
-            MaterialPageRoute(
-              builder: (context) => const ResponsiveLayout(
-                mobileLayout: HomeScreen(),
-                webLayout: WebScreenLayout(),
+        if (success && mounted) {
+          if (authProvider.isAuthenticated) {
+            Navigator.pushAndRemoveUntil(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const ResponsiveLayout(
+                  mobileLayout: HomeScreen(),
+                  webLayout: WebScreenLayout(),
+                ),
               ),
-            ),
-            (route) => false,
-          );
-        } else {
-          Navigator.pushAndRemoveUntil(
-            context,
-            MaterialPageRoute(
-              builder: (context) => const CompleteProfileScreen(),
-            ),
-            (route) => false,
-          );
+              (route) => false,
+            );
+          } else {
+            Navigator.pushAndRemoveUntil(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const CompleteProfileScreen(),
+              ),
+              (route) => false,
+            );
+          }
         }
-      } else if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Invalid OTP or backend error.')),
-        );
+      } on ApiException catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+        }
       }
     }
+  }
+
+  @override
+  void dispose() {
+    _otpController.dispose();
+    super.dispose();
   }
 
   @override

@@ -55,7 +55,9 @@ class _WebChatViewState extends State<WebChatView> {
         });
       }
     });
-    _messageStatusSubscription = SocketService().messageStatusStream.listen((status) {
+    _messageStatusSubscription = SocketService().messageStatusStream.listen((
+      status,
+    ) {
       if (status.chatId == widget.chat.id) {
         setState(() {
           _applyMessageStatus(status);
@@ -79,28 +81,29 @@ class _WebChatViewState extends State<WebChatView> {
   }
 
   void _upsertMessage(Message message) {
-    final existingIndex = _messages.indexWhere((item) => item.id == message.id);
+    final existingIndex = _messages.indexWhere(
+      (item) => item.id == message.id || item.clientUuid == message.clientUuid,
+    );
     if (existingIndex == -1) {
       _messages.insert(0, message);
       return;
     }
 
-    final currentMessage = _messages[existingIndex];
-    _messages[existingIndex] = message.copyWith(
-      isDelivered: currentMessage.isDelivered || message.isDelivered,
-      isRead: currentMessage.isRead || message.isRead,
-    );
+    _messages[existingIndex] = message;
   }
 
   void _applyMessageStatus(MessageStatusUpdate status) {
-    final existingIndex = _messages.indexWhere((item) => item.id == status.messageId);
-    if (existingIndex == -1) return;
-
-    final currentMessage = _messages[existingIndex];
-    _messages[existingIndex] = currentMessage.copyWith(
-      isDelivered: currentMessage.isDelivered || status.isDelivered,
-      isRead: currentMessage.isRead || status.isRead,
-    );
+    final ids = status.messageIds.isEmpty
+        ? [status.messageId]
+        : status.messageIds;
+    for (final id in ids) {
+      final existingIndex = _messages.indexWhere((item) => item.id == id);
+      if (existingIndex == -1) continue;
+      final currentMessage = _messages[existingIndex];
+      _messages[existingIndex] = currentMessage.copyWith(
+        deliveryState: status.deliveryState,
+      );
+    }
   }
 
   void _sendMessage() async {
@@ -108,12 +111,14 @@ class _WebChatViewState extends State<WebChatView> {
     if (text.isNotEmpty) {
       _messageController.clear();
       setState(() => _showSendIcon = false);
-      final message = await _apiService.sendMessage(widget.chat.receiverId, text);
-      if (message != null) {
-        setState(() {
-          _upsertMessage(message);
-        });
-      }
+      final message = await _apiService.sendMessage(
+        widget.chat.receiverId,
+        text,
+        clientUuid: ApiService.createClientUuid(),
+      );
+      setState(() {
+        _upsertMessage(message);
+      });
     }
   }
 
@@ -141,11 +146,11 @@ class _WebChatViewState extends State<WebChatView> {
             children: [
               CircleAvatar(
                 backgroundColor: Colors.grey[300],
-                backgroundImage: widget.chat.avatarUrl.isNotEmpty 
-                    ? NetworkImage(widget.chat.avatarUrl) 
+                backgroundImage: widget.chat.avatarUrl.isNotEmpty
+                    ? NetworkImage(widget.chat.avatarUrl)
                     : null,
-                child: widget.chat.avatarUrl.isEmpty 
-                    ? const Icon(Icons.person, color: Colors.grey) 
+                child: widget.chat.avatarUrl.isEmpty
+                    ? const Icon(Icons.person, color: Colors.grey)
                     : null,
               ),
               const SizedBox(width: 15),
@@ -155,46 +160,49 @@ class _WebChatViewState extends State<WebChatView> {
                 children: [
                   Text(
                     widget.chat.name,
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
                   ),
                   Text(
-                    "Online",
+                    widget.chat.isOnline ? "Online" : "Offline",
                     style: TextStyle(color: Colors.grey[600], fontSize: 12),
                   ),
                 ],
               ),
               const Spacer(),
-              IconButton(icon: const Icon(Icons.search, color: Colors.grey), onPressed: () {}),
-              IconButton(icon: const Icon(Icons.more_vert, color: Colors.grey), onPressed: () {}),
             ],
           ),
         ),
-        
+
         // Messages Area
         Expanded(
           child: Container(
             decoration: BoxDecoration(
               color: AppColors.chatBackgroundColor,
               image: const DecorationImage(
-                image: NetworkImage("https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png"),
+                image: NetworkImage(
+                  "https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png",
+                ),
                 fit: BoxFit.cover,
                 opacity: 0.1,
               ),
             ),
-            child: _isLoading 
-              ? const Center(child: CircularProgressIndicator())
-              : ListView.builder(
-                  padding: const EdgeInsets.all(20),
-                  itemCount: _messages.length,
-                  reverse: true,
-                  itemBuilder: (context, index) {
-                    final message = _messages[index];
-                    return _buildMessage(message);
-                  },
-                ),
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : ListView.builder(
+                    padding: const EdgeInsets.all(20),
+                    itemCount: _messages.length,
+                    reverse: true,
+                    itemBuilder: (context, index) {
+                      final message = _messages[index];
+                      return _buildMessage(message);
+                    },
+                  ),
           ),
         ),
-        
+
         // Message Composer
         Container(
           height: 62,
@@ -202,19 +210,21 @@ class _WebChatViewState extends State<WebChatView> {
           padding: const EdgeInsets.symmetric(horizontal: 10),
           child: Row(
             children: [
-              IconButton(icon: const Icon(Icons.insert_emoticon, color: Colors.grey), onPressed: () {}),
-              IconButton(icon: const Icon(Icons.attach_file, color: Colors.grey), onPressed: () {}),
               const SizedBox(width: 10),
               Expanded(
                 child: TextField(
                   controller: _messageController,
-                  onChanged: (val) => setState(() => _showSendIcon = val.trim().isNotEmpty),
+                  onChanged: (val) =>
+                      setState(() => _showSendIcon = val.trim().isNotEmpty),
                   decoration: const InputDecoration(
                     hintText: "Type a message",
                     border: InputBorder.none,
                     fillColor: Colors.white,
                     filled: true,
-                    contentPadding: EdgeInsets.symmetric(horizontal: 15, vertical: 10),
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 15,
+                      vertical: 10,
+                    ),
                   ),
                 ),
               ),
@@ -240,7 +250,9 @@ class _WebChatViewState extends State<WebChatView> {
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
         padding: const EdgeInsets.all(10),
-        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.45),
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.45,
+        ),
         decoration: BoxDecoration(
           color: isMe ? AppColors.outgoingMessageColor : Colors.white,
           borderRadius: BorderRadius.circular(10),
@@ -255,10 +267,7 @@ class _WebChatViewState extends State<WebChatView> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              message.text,
-              style: const TextStyle(fontSize: 15),
-            ),
+            Text(message.text, style: const TextStyle(fontSize: 15)),
             const SizedBox(height: 5),
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
@@ -271,9 +280,15 @@ class _WebChatViewState extends State<WebChatView> {
                 if (isMe) ...[
                   const SizedBox(width: 4),
                   Icon(
-                    message.isRead ? Icons.done_all : Icons.done,
+                    message.deliveryState == MessageStatus.read
+                        ? Icons.done_all
+                        : (message.deliveryState == MessageStatus.delivered
+                              ? Icons.done_all
+                              : Icons.done),
                     size: 14,
-                    color: message.isRead ? Colors.blue : Colors.grey,
+                    color: message.deliveryState == MessageStatus.read
+                        ? Colors.blue
+                        : Colors.grey,
                   ),
                 ],
               ],

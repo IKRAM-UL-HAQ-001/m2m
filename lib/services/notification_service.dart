@@ -52,37 +52,10 @@ class NotificationService {
       // Handle background messages
       FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
-      // Handle foreground messages
+      // Handle foreground messages - suppress display since WebSocket handles in-app notifications.
+      // FCM foreground messages would duplicate the WebSocket notification.
       FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-        log("Foreground message received: ${message.messageId}");
-        
-        RemoteNotification? notification = message.notification;
-        AndroidNotification? android = message.notification?.android;
-        Map<String, dynamic> data = message.data;
-
-        // Determine contents
-        String title = notification?.title ?? data['title'] ?? 'New Message';
-        String body = notification?.body ?? data['body'] ?? 'You have a new message';
-
-        _playSound(); // Always try to play custom sound in foreground
-
-        _localNotifications.show(
-          message.hashCode,
-          title,
-          body,
-          NotificationDetails(
-            android: AndroidNotificationDetails(
-              channel.id,
-              channel.name,
-              channelDescription: channel.description,
-              icon: android?.smallIcon ?? '@mipmap/ic_launcher',
-              importance: Importance.max,
-              priority: Priority.high,
-              playSound: true,
-              enableVibration: true,
-            ),
-          ),
-        );
+        log("Foreground FCM message received (suppressed): ${message.messageId}");
       });
     } catch (e) {
       log("Error during NotificationService.initialize: $e");
@@ -111,8 +84,6 @@ class NotificationService {
   static Future<void> getTokenAndSave() async {
     String? token = await _messaging.getToken();
     if (token != null) {
-      log("FCM Token: $token");
-      // Save token to backend via ApiService
       await ApiService.updateFcmToken(token);
     }
   }

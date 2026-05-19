@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+import '../services/api_service.dart';
 import '../utils/constants.dart';
 import '../viewmodels/auth_viewmodel.dart';
 import 'contact_sync_screen.dart';
@@ -36,24 +37,31 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
     }
 
     final authProvider = Provider.of<AuthViewModel>(context, listen: false);
-    bool success = await authProvider.completeProfile(
-      _nameController.text.trim(),
-      _image?.path,
-    );
+    try {
+      bool success = await authProvider.completeProfile(
+        _nameController.text.trim(),
+        _image?.path,
+      );
 
-    if (success && mounted) {
-      // After profile completion, go to Contact Sync
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => const ContactSyncScreen(),
-        ),
-      );
-    } else if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to update profile. Please try again.')),
-      );
+      if (success && mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => const ContactSyncScreen(),
+          ),
+        );
+      }
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      }
     }
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    super.dispose();
   }
 
   @override

@@ -1,14 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
 import '../utils/constants.dart';
+import '../services/api_service.dart';
 import '../viewmodels/auth_viewmodel.dart';
 import '../viewmodels/chat_viewmodel.dart';
+import '../viewmodels/status_viewmodel.dart';
+import 'calls/calls_tab.dart';
 import 'chats_list_view.dart';
+import 'linked_devices_screen.dart';
 import 'login_screen.dart';
 import 'select_contact_screen.dart';
-import 'linked_devices_screen.dart';
-
 import 'settings_screen.dart';
+import 'status/status_tab.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -17,106 +21,271 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin {
-  late TabController _tabController;
+class _HomeScreenState extends State<HomeScreen>
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
+  final ApiService _apiService = ApiService();
+  final TextEditingController _searchController = TextEditingController();
+  late final TabController _tabController;
+  bool _isSearching = false;
+  String _searchQuery = '';
+  int _currentTabIndex = 0;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this, initialIndex: 0);
+    WidgetsBinding.instance.addObserver(this);
+    _tabController = TabController(length: 3, vsync: this);
     _tabController.addListener(() {
-      if (mounted) setState(() {});
+      if (!mounted) return;
+      if (_currentTabIndex != _tabController.index) {
+        _currentTabIndex = _tabController.index;
+        _closeSearch();
+        return;
+      }
+      setState(() {});
     });
     Future.microtask(() {
       if (mounted) {
         Provider.of<ChatViewModel>(context, listen: false).fetchChats();
+        Provider.of<StatusViewModel>(context, listen: false).loadStatuses();
+        _syncContactsIfNeeded();
       }
     });
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _searchController.dispose();
     _tabController.dispose();
     super.dispose();
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _syncContactsIfNeeded();
+    }
+  }
+
+  Future<void> _syncContactsIfNeeded() async {
+    try {
+      if (!await _apiService.shouldSyncContacts()) return;
+      await _apiService.syncContacts();
+    } catch (e) {
+      debugPrint('Contact sync skipped: $e');
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('M2M', style: TextStyle(color: Colors.white)),
-        backgroundColor: AppColors.primaryColor,
-        elevation: 0.7,
-        iconTheme: const IconThemeData(color: Colors.white),
-        actions: [
-          IconButton(icon: const Icon(Icons.search), onPressed: () {}),
-          PopupMenuButton<String>(
-            onSelected: (value) async {
-              if (value == 'logout') {
-                final authProvider = Provider.of<AuthViewModel>(context, listen: false);
-                await authProvider.logout();
-                if (mounted) {
-                  if (!context.mounted) return;
-                  Navigator.pushAndRemoveUntil(
-                    context,
-                    MaterialPageRoute(builder: (context) => const LoginScreen()),
-                    (route) => false,
-                  );
-                }
-              } else if (value == 'linked_devices') {
-                // Navigate to LinkedDevicesScreen
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const LinkedDevicesScreen()),
-                );
-              } else if (value == 'settings') {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const SettingsScreen()),
-                );
-              }
-            },
-            itemBuilder: (context) => [
-              const PopupMenuItem(value: 'linked_devices', child: Text('Linked devices')),
-              const PopupMenuItem(value: 'settings', child: Text('Settings')),
-              const PopupMenuItem(value: 'logout', child: Text('Logout')),
+    return PopScope(
+      canPop: !_isSearching,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop && _isSearching) {
+          _closeSearch();
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: _isSearching
+              ? TextField(
+                  controller: _searchController,
+                  autofocus: true,
+                  style: const TextStyle(color: Colors.white, fontSize: 18),
+                  cursorColor: Colors.white,
+                  decoration: InputDecoration(
+                    hintText: _getSearchHint(),
+                    hintStyle: const TextStyle(color: Colors.white60),
+                    border: InputBorder.none,
+                  ),
+                  onChanged: (value) {
+                    setState(() => _searchQuery = value.trim());
+                  },
+                )
+              : const Text(
+                  'M2M',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+          backgroundColor: AppColors.primaryColor,
+          elevation: 0.7,
+          iconTheme: const IconThemeData(color: Colors.white),
+          actions: _isSearching
+              ? [
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white),
+                    onPressed: _closeSearch,
+                  ),
+                ]
+              : [
+                  IconButton(
+                    icon: const Icon(Icons.search, color: Colors.white),
+                    onPressed: () {
+                      setState(() => _isSearching = true);
+                    },
+                  ),
+                  PopupMenuButton<String>(
+                    icon: const Icon(Icons.more_vert, color: Colors.white),
+                    onSelected: (value) async {
+                      if (value == 'logout') {
+                        final authProvider = Provider.of<AuthViewModel>(
+                          context,
+                          listen: false,
+                        );
+                        await authProvider.logout();
+                        if (context.mounted) {
+                          Navigator.pushAndRemoveUntil(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const LoginScreen(),
+                            ),
+                            (route) => false,
+                          );
+                        }
+                      } else if (value == 'new_contact') {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const SelectContactScreen(),
+                          ),
+                        );
+                      } else if (value == 'linked_devices') {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const LinkedDevicesScreen(),
+                          ),
+                        );
+                      } else if (value == 'settings') {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const SettingsScreen(),
+                          ),
+                        );
+                      }
+                    },
+                    itemBuilder: (context) => const [
+                      PopupMenuItem(
+                        value: 'new_contact',
+                        child: Text('New contact'),
+                      ),
+                      PopupMenuItem(
+                        value: 'linked_devices',
+                        child: Text('Linked devices'),
+                      ),
+                      PopupMenuItem(value: 'settings', child: Text('Settings')),
+                      PopupMenuItem(value: 'logout', child: Text('Logout')),
+                    ],
+                  ),
+                ],
+          bottom: TabBar(
+            controller: _tabController,
+            indicatorColor: Colors.white,
+            indicatorWeight: 3,
+            labelColor: Colors.white,
+            unselectedLabelColor: Colors.white60,
+            labelStyle: const TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+              letterSpacing: 1.2,
+            ),
+            tabs: [
+              const Tab(text: 'CHATS'),
+              Tab(
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    const Text(
+                      'STATUS',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                    Positioned(
+                      right: -12,
+                      top: -4,
+                      child: Consumer<StatusViewModel>(
+                        builder: (context, vm, child) {
+                          if (!vm.hasUnseenStatuses) {
+                            return const SizedBox.shrink();
+                          }
+                          return Container(
+                            width: 8,
+                            height: 8,
+                            decoration: const BoxDecoration(
+                              color: Colors.greenAccent,
+                              shape: BoxShape.circle,
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Tab(text: 'CALLS'),
             ],
           ),
-        ],
-        bottom: TabBar(
+        ),
+        body: TabBarView(
           controller: _tabController,
-          indicatorColor: Colors.white,
-          labelColor: Colors.white,
-          unselectedLabelColor: Colors.white70,
-          tabs: const [
-            Tab(text: "CHATS"),
-            Tab(text: "STATUS"),
-            Tab(text: "CALLS"),
+          children: [
+            ChatsListView(searchQuery: _activeSearchQuery),
+            StatusTab(searchQuery: _activeSearchQuery),
+            CallsPlaceholderTab(searchQuery: _activeSearchQuery),
           ],
         ),
+        floatingActionButton: _tabController.index == 0 && !_isSearching
+            ? FloatingActionButton(
+                backgroundColor: AppColors.floatingButtonColor,
+                child: const Icon(Icons.message, color: Colors.white),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const SelectContactScreen(),
+                    ),
+                  );
+                },
+              )
+            : null,
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          const ChatsListView(),
-          const Center(child: Text("Status Section")),
-          const Center(child: Text("Calls Section")),
-        ],
-      ),
-      floatingActionButton: _tabController.index == 1 
-        ? null 
-        : FloatingActionButton(
-            backgroundColor: AppColors.floatingButtonColor,
-            child: Icon(_tabController.index == 2 ? Icons.call : Icons.message, color: Colors.white),
-            onPressed: () {
-              if (_tabController.index == 0) {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const SelectContactScreen()),
-                );
-              }
-            },
-          ),
     );
+  }
+
+  String get _activeSearchQuery => _isSearching ? _searchQuery : '';
+
+  String _getSearchHint() {
+    switch (_tabController.index) {
+      case 0:
+        return 'Search chats...';
+      case 1:
+        return 'Search status...';
+      case 2:
+        return 'Search calls...';
+      default:
+        return 'Search...';
+    }
+  }
+
+  void _closeSearch() {
+    if (!_isSearching &&
+        _searchQuery.isEmpty &&
+        _searchController.text.isEmpty) {
+      setState(() {});
+      return;
+    }
+    setState(() {
+      _isSearching = false;
+      _searchQuery = '';
+      _searchController.clear();
+    });
   }
 }

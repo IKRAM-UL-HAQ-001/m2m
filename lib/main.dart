@@ -2,14 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'viewmodels/chat_viewmodel.dart';
 import 'viewmodels/auth_viewmodel.dart';
+import 'viewmodels/status_viewmodel.dart';
 import 'views/splash_screen.dart';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'services/notification_service.dart';
+import 'services/permission_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
+  // Request notification permission early so Firebase can deliver messages
+  await PermissionService.requestNotification();
+
   try {
     await Firebase.initializeApp();
     await NotificationService.initialize();
@@ -29,6 +34,7 @@ void main() async {
             return resolvedChatViewModel;
           },
         ),
+        ChangeNotifierProvider(create: (_) => StatusViewModel()),
       ],
       child: const MyApp(),
     ),

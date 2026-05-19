@@ -43,8 +43,6 @@ class _WebScreenLayoutState extends State<WebScreenLayout> {
                         child: Icon(Icons.person, color: Colors.white),
                       ),
                       const Spacer(),
-                      IconButton(icon: const Icon(Icons.comment, color: Colors.grey), onPressed: () {}),
-                      IconButton(icon: const Icon(Icons.more_vert, color: Colors.grey), onPressed: () {}),
                     ],
                   ),
                 ),
@@ -142,4 +140,3 @@ class _WebScreenLayoutState extends State<WebScreenLayout> {
     );
   }
 }
-
