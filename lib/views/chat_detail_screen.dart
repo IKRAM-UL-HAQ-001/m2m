@@ -87,6 +87,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   StreamSubscription<Map<String, dynamic>>? _deleteSubscription;
   StreamSubscription<Map<String, dynamic>>? _reactionSubscription;
 
+  final Map<String, Widget> _messageWidgetCache = {};
+
+  @override
+  void setState(VoidCallback fn) {
+    _messageWidgetCache.clear();
+    super.setState(fn);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -103,11 +111,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     }
     _focusNode.addListener(() {
       if (_focusNode.hasFocus && _showEmojiPicker) {
-        Future.delayed(const Duration(milliseconds: 120), () {
-          if (mounted && _focusNode.hasFocus) {
-            setState(() => _showEmojiPicker = false);
-          }
-        });
+        setState(() => _showEmojiPicker = false);
       }
     });
     _pulseController = AnimationController(
@@ -1262,15 +1266,20 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
                 final showDate =
                     index == _messages.length - 1 ||
                     !_isSameDay(message.time, _messages[index + 1].time);
-                return Column(
-                  children: [
-                    if (showDate) _buildDateChip(message.time),
-                    RepaintBoundary(
-                      key: _messageKey(message.id),
-                      child: _buildMessage(message),
-                    ),
-                  ],
-                );
+                final isHighlighted = _highlightedMessageId == message.id;
+                final cacheKey = '${message.id}_${isHighlighted}_$showDate';
+
+                return _messageWidgetCache.putIfAbsent(cacheKey, () {
+                  return Column(
+                    children: [
+                      if (showDate) _buildDateChip(message.time),
+                      RepaintBoundary(
+                        key: _messageKey(message.id),
+                        child: _buildMessage(message),
+                      ),
+                    ],
+                  );
+                });
               },
             ),
     );
@@ -2169,6 +2178,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
 
   void _toggleEmojiPicker() {
     if (_showEmojiPicker) {
+      setState(() => _showEmojiPicker = false);
       _focusNode.requestFocus();
     } else {
       _focusNode.unfocus();
