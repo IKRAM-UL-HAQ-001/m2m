@@ -1116,13 +1116,17 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
               ),
             ),
             _buildComposerArea(),
-            if (_showEmojiPicker)
-              RepaintBoundary(
+            Visibility(
+              visible: _showEmojiPicker,
+              maintainState: true,
+              maintainAnimation: true,
+              child: RepaintBoundary(
                 child: SizedBox(
                   height: _emojiPickerHeight,
                   child: _buildEmojiPicker(),
                 ),
               ),
+            ),
           ],
         ),
       ),
@@ -2039,10 +2043,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       ),
     );
   }
-
-  Widget _buildMicSendButton() {
-    return Listener(
-      onPointerDown: (event) {
+WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _focusNode.requestFocus();
+      });
+    } else {
+      _focusNode.unfocus();
+      if (mounted) onPointerDown: (event) {
         if (_showSendIcon || _isRecording) return;
         setState(() {
           _recordingStartPos = event.position;
