@@ -66,6 +66,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   late Animation<double> _blinkAnimation;
 
   bool _showEmojiPicker = false;
+  Widget? _cachedEmojiPicker;
   Message? _replyingToMessage;
   String? _highlightedMessageId;
 
@@ -102,7 +103,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     }
     _focusNode.addListener(() {
       if (_focusNode.hasFocus && _showEmojiPicker) {
-        setState(() => _showEmojiPicker = false);
+        Future.delayed(const Duration(milliseconds: 120), () {
+          if (mounted && _focusNode.hasFocus) {
+            setState(() => _showEmojiPicker = false);
+          }
+        });
       }
     });
     _pulseController = AnimationController(
@@ -1122,7 +1127,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
               maintainAnimation: true,
               child: RepaintBoundary(
                 child: SizedBox(
-                  height: _emojiPickerHeight,
+                  height: _showEmojiPicker
+                      ? (_emojiPickerHeight - MediaQuery.of(context).viewInsets.bottom)
+                          .clamp(0.0, _emojiPickerHeight)
+                      : 0.0,
                   child: _buildEmojiPicker(),
                 ),
               ),
@@ -2043,12 +2051,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       ),
     );
   }
-WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _focusNode.requestFocus();
-      });
-    } else {
-      _focusNode.unfocus();
-      if (mounted) onPointerDown: (event) {
+
+  Widget _buildMicSendButton() {
+    return Listener(
+      onPointerDown: (event) {
         if (_showSendIcon || _isRecording) return;
         setState(() {
           _recordingStartPos = event.position;
@@ -2163,7 +2169,6 @@ WidgetsBinding.instance.addPostFrameCallback((_) {
 
   void _toggleEmojiPicker() {
     if (_showEmojiPicker) {
-      setState(() => _showEmojiPicker = false);
       _focusNode.requestFocus();
     } else {
       _focusNode.unfocus();
@@ -2172,7 +2177,7 @@ WidgetsBinding.instance.addPostFrameCallback((_) {
   }
 
   Widget _buildEmojiPicker() {
-    return EmojiPicker(
+    _cachedEmojiPicker ??= EmojiPicker(
       textEditingController: _messageController,
       onEmojiSelected: (_, emoji) {
         _syncSendIcon();
@@ -2182,7 +2187,7 @@ WidgetsBinding.instance.addPostFrameCallback((_) {
       },
       config: Config(
         height: _emojiPickerHeight,
-        checkPlatformCompatibility: true,
+        checkPlatformCompatibility: false,
         emojiViewConfig: EmojiViewConfig(
           backgroundColor: Colors.white,
           emojiSizeMax:
@@ -2201,6 +2206,16 @@ WidgetsBinding.instance.addPostFrameCallback((_) {
           iconColorSelected: AppColors.primaryColor,
         ),
       ),
+    );
+    
+    // Isolate from changing keyboard view insets to avoid unnecessary rebuilds during keyboard animation
+    return MediaQuery(
+      data: MediaQuery.of(context).copyWith(
+        viewInsets: EdgeInsets.zero,
+        viewPadding: EdgeInsets.zero,
+        padding: EdgeInsets.zero,
+      ),
+      child: _cachedEmojiPicker!,
     );
   }
 }
