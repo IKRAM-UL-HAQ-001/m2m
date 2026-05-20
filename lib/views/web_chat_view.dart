@@ -54,6 +54,9 @@ class _WebChatViewState extends State<WebChatView> {
         setState(() {
           _upsertMessage(message);
         });
+        if (!message.isMe) {
+          _apiService.markChatRead(widget.chat.id).catchError((_) {});
+        }
       }
     });
     _messageStatusSubscription = SocketService().messageStatusStream.listen((

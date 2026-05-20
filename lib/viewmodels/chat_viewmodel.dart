@@ -11,6 +11,7 @@ class ChatViewModel extends ChangeNotifier {
   bool _isAuthenticated = false;
   String? _activeChatId;
   StreamSubscription<Message>? _socketSubscription;
+  StreamSubscription<MessageStatusUpdate>? _statusSubscription;
 
   List<Chat> get chats => _chats;
   bool get isLoading => _isLoading;
@@ -22,6 +23,9 @@ class ChatViewModel extends ChangeNotifier {
   ChatViewModel() {
     _socketSubscription = _socketService.messageStream.listen((message) {
       _handleNewMessage(message);
+    });
+    _statusSubscription = _socketService.messageStatusStream.listen((status) {
+      _handleStatusUpdate(status);
     });
   }
 
@@ -121,9 +125,33 @@ class ChatViewModel extends ChangeNotifier {
     }
   }
 
+  void _handleStatusUpdate(MessageStatusUpdate status) {
+    final index = _chats.indexWhere((c) => c.id == status.chatId);
+    if (index != -1) {
+      final chat = _chats[index];
+      _chats[index] = Chat(
+        id: chat.id,
+        receiverId: chat.receiverId,
+        name: chat.name,
+        phone: chat.phone,
+        about: chat.about,
+        avatarUrl: chat.avatarUrl,
+        lastMessage: chat.lastMessage,
+        lastMessageType: chat.lastMessageType,
+        lastMessageStatus: status.deliveryState,
+        lastMessageFileUrl: chat.lastMessageFileUrl,
+        time: chat.time,
+        unreadCount: chat.unreadCount,
+        isOnline: chat.isOnline,
+      );
+      notifyListeners();
+    }
+  }
+
   @override
   void dispose() {
     _socketSubscription?.cancel();
+    _statusSubscription?.cancel();
     super.dispose();
   }
 }

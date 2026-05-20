@@ -505,9 +505,15 @@ class ApiService {
 
   Future<void> markMessagesDelivered(List<String> messageIds) async {
     if (messageIds.isEmpty) return;
+    final intIds = messageIds
+        .map((id) => int.tryParse(id))
+        .where((id) => id != null)
+        .cast<int>()
+        .toList();
+    if (intIds.isEmpty) return;
     await _dio.post(
       '/api/messages/delivered/',
-      data: {'message_ids': messageIds},
+      data: {'message_ids': intIds},
     );
   }
 

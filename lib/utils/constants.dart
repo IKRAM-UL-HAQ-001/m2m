@@ -10,7 +10,7 @@ class AppColors {
 }
 
 class AppConstants {
-  static const String _defaultServerIp = '54.85.57.11';
+  static const String _defaultServerIp = '192.168.1.69:8000';
   static const String _serverIpOverride = String.fromEnvironment('SERVER_IP');
   static const String _serverBaseUrlOverride = String.fromEnvironment(
     'SERVER_BASE_URL',
@@ -38,7 +38,7 @@ class AppConstants {
     if (_authBaseUrlOverride.isNotEmpty) {
       return _stripPathSuffix(_authBaseUrlOverride, '/auth');
     }
-    return 'http://$serverIp:8000';
+    return 'http://$serverIp';
   }
 
   static String get apiBaseUrl => _apiBaseUrlOverride.isNotEmpty

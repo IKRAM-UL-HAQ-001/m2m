@@ -12,10 +12,17 @@ class UrlHelper {
     if (url.startsWith('http')) return url;
     
     final baseUrl = getBaseUrl();
-    if (url.startsWith('/')) {
-      return "$baseUrl$url";
+    final cleanBaseUrl = baseUrl.replaceFirst(RegExp(r'/+$'), '');
+    
+    var cleanUrl = url;
+    if (cleanUrl.startsWith('/')) {
+      cleanUrl = cleanUrl.substring(1);
+    }
+    
+    if (cleanUrl.startsWith('media/')) {
+      return "$cleanBaseUrl/$cleanUrl";
     } else {
-      return "$baseUrl/media/$url";
+      return "$cleanBaseUrl/media/$cleanUrl";
     }
   }
 }

@@ -143,6 +143,15 @@ class NotificationService {
     final body = notification?.body ?? data['body'] ?? 'You have a new message';
 
     await _showNotification(title: title, body: body, data: data);
+
+    try {
+      final messageId = data['message_id']?.toString() ?? data['id']?.toString();
+      if (messageId != null) {
+        await ApiService().markMessagesDelivered([messageId]);
+      }
+    } catch (e) {
+      debugPrint('FCM delivery callback error: $e');
+    }
   }
 
   Future<void> _showNotification({

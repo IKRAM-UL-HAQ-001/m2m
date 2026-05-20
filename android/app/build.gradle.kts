@@ -23,7 +23,7 @@ android {
     namespace = "com.danish.m2m"
     compileSdk = 36
     ndkVersion = "27.0.12077973"
-
+//    ndkVersion =    "30.0.14904198"
     signingConfigs {
         create("release") {
             keyAlias = localProperties.getProperty("releaseKeyAlias")

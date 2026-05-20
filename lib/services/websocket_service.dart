@@ -204,8 +204,14 @@ class SocketService extends ChangeNotifier {
 
   void markDelivered(List<String> messageIds) {
     if (_channel == null || messageIds.isEmpty) return;
+    final intIds = messageIds
+        .map((id) => int.tryParse(id))
+        .where((id) => id != null)
+        .cast<int>()
+        .toList();
+    if (intIds.isEmpty) return;
     _channel?.sink.add(
-      jsonEncode({'type': 'messages_delivered', 'message_ids': messageIds}),
+      jsonEncode({'type': 'messages_delivered', 'message_ids': intIds}),
     );
     _apiService.markMessagesDelivered(messageIds).catchError((_) {});
   }

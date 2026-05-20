@@ -120,6 +120,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     _socketSubscription = SocketService().messageStream.listen((msg) {
       if (msg.chatId == _currentChatId && mounted) {
         setState(() => _upsertMessage(msg));
+        if (!msg.isMe) {
+          _apiService.markChatRead(_currentChatId!).catchError((_) {});
+        }
       }
     });
     _statusSubscription = SocketService().messageStatusStream.listen((status) {
