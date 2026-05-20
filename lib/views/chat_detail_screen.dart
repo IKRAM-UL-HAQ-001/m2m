@@ -17,6 +17,7 @@ import 'package:provider/provider.dart';
 import 'package:record/record.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:video_player/video_player.dart';
 
 import '../models/chat.dart';
 import '../models/message.dart';
@@ -676,7 +677,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   }
 
   Future<void> _openFile(String url) async {
-    final uri = Uri.parse(url);
+    final uri = Uri.parse(ApiService.mediaUrl(url));
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     } else if (mounted) {
@@ -684,6 +685,21 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
         context,
       ).showSnackBar(const SnackBar(content: Text('Could not open file')));
     }
+  }
+
+  void _openMediaPreview(Message message) {
+    if (message.fileUrl == null || message.fileUrl!.isEmpty) return;
+    final url = ApiService.mediaUrl(message.fileUrl);
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => MediaPreviewScreen(
+          url: url,
+          isVideo: message.type == 'video' || _isVideoUrl(url),
+          caption: message.text == '[File]' ? null : message.text,
+          heroTag: 'media-${message.id}',
+        ),
+      ),
+    );
   }
 
   Future<void> _downloadAndSaveImage(String url) async {
@@ -1009,25 +1025,26 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
         child: Column(
           children: [
             Expanded(
-              child: GestureDetector(
-                onTap: () {
-                  _focusNode.unfocus();
-                  if (_showEmojiPicker) {
-                    setState(() => _showEmojiPicker = false);
-                  }
-                },
-                child: _buildChatArea(),
+              child: RepaintBoundary(
+                child: GestureDetector(
+                  onTap: () {
+                    _focusNode.unfocus();
+                    if (_showEmojiPicker) {
+                      setState(() => _showEmojiPicker = false);
+                    }
+                  },
+                  child: _buildChatArea(),
+                ),
               ),
             ),
             _buildComposerArea(),
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              curve: Curves.easeOut,
-              height: _showEmojiPicker ? Responsive.h(33).clamp(240, 300) : 0,
-              child: _showEmojiPicker
-                  ? _buildEmojiPicker()
-                  : const SizedBox.shrink(),
-            ),
+            if (_showEmojiPicker)
+              RepaintBoundary(
+                child: SizedBox(
+                  height: Responsive.h(33).clamp(240, 300),
+                  child: _buildEmojiPicker(),
+                ),
+              ),
           ],
         ),
       ),
@@ -1146,6 +1163,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
             )
           : ListView.builder(
               controller: _scrollController,
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
               reverse: true,
               itemCount: _messages.length,
@@ -1336,44 +1354,61 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   }
 
   Widget _buildImageContent(Message message) {
-    return Stack(
-      children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: CachedNetworkImage(
-            imageUrl: ApiService.mediaUrl(message.fileUrl),
-            fit: BoxFit.cover,
-            errorWidget: (context, url, error) =>
-                const Icon(Icons.broken_image, size: 48),
-          ),
-        ),
-        if (!_downloadedUrls.contains(message.fileUrl!))
-          Positioned(
-            right: 4,
-            bottom: 4,
-            child: GestureDetector(
-              onTap: () => _downloadAndSaveImage(message.fileUrl!),
-              child: Container(
-                padding: const EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.5),
-                  shape: BoxShape.circle,
+    final imageUrl = ApiService.mediaUrl(message.fileUrl);
+    return GestureDetector(
+      onTap: () => _openMediaPreview(message),
+      child: Stack(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: Hero(
+              tag: 'media-${message.id}',
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  minWidth: 180,
+                  maxWidth: 260,
+                  minHeight: 140,
+                  maxHeight: 320,
                 ),
-                child: const Icon(
-                  Icons.download,
-                  size: 16,
-                  color: Colors.white,
+                child: CachedNetworkImage(
+                  imageUrl: imageUrl,
+                  fit: BoxFit.cover,
+                  placeholder: (context, url) =>
+                      Container(width: 220, height: 180, color: Colors.black12),
+                  errorWidget: (context, url, error) =>
+                      const Icon(Icons.broken_image, size: 48),
                 ),
               ),
             ),
           ),
-      ],
+          if (!_downloadedUrls.contains(message.fileUrl!))
+            Positioned(
+              right: 4,
+              bottom: 4,
+              child: GestureDetector(
+                onTap: () => _downloadAndSaveImage(message.fileUrl!),
+                child: Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.5),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.download,
+                    size: 16,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 
   Widget _buildVideoContent(Message message) {
     return GestureDetector(
-      onTap: () => _openFile(message.fileUrl!),
+      onTap: () => _openMediaPreview(message),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(8),
         child: Container(
@@ -1872,9 +1907,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       _focusNode.requestFocus();
     } else {
       _focusNode.unfocus();
-      Future.delayed(const Duration(milliseconds: 100), () {
-        if (mounted) setState(() => _showEmojiPicker = true);
-      });
+      setState(() => _showEmojiPicker = true);
     }
   }
 
@@ -1912,6 +1945,161 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
           iconColorSelected: AppColors.primaryColor,
         ),
       ),
+    );
+  }
+}
+
+class MediaPreviewScreen extends StatefulWidget {
+  final String url;
+  final bool isVideo;
+  final String? caption;
+  final String heroTag;
+
+  const MediaPreviewScreen({
+    super.key,
+    required this.url,
+    required this.isVideo,
+    required this.heroTag,
+    this.caption,
+  });
+
+  @override
+  State<MediaPreviewScreen> createState() => _MediaPreviewScreenState();
+}
+
+class _MediaPreviewScreenState extends State<MediaPreviewScreen> {
+  VideoPlayerController? _videoController;
+  Future<void>? _videoFuture;
+  bool _isPlaying = true;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.isVideo) {
+      final controller = VideoPlayerController.networkUrl(
+        Uri.parse(widget.url),
+      );
+      _videoController = controller;
+      _videoFuture = controller.initialize().then((_) {
+        controller.play();
+        if (mounted) setState(() => _isPlaying = true);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _videoController?.dispose();
+    super.dispose();
+  }
+
+  void _togglePlayback() {
+    final controller = _videoController;
+    if (controller == null || !controller.value.isInitialized) return;
+    if (controller.value.isPlaying) {
+      controller.pause();
+    } else {
+      controller.play();
+    }
+    setState(() => _isPlaying = controller.value.isPlaying);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        iconTheme: const IconThemeData(color: Colors.white),
+        elevation: 0,
+      ),
+      body: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            Expanded(
+              child: Center(
+                child: widget.isVideo ? _buildVideo() : _buildImage(),
+              ),
+            ),
+            if (widget.caption != null && widget.caption!.trim().isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                child: Text(
+                  widget.caption!,
+                  style: const TextStyle(color: Colors.white, fontSize: 15),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildImage() {
+    return Hero(
+      tag: widget.heroTag,
+      child: InteractiveViewer(
+        minScale: 1,
+        maxScale: 4,
+        child: CachedNetworkImage(
+          imageUrl: widget.url,
+          fit: BoxFit.contain,
+          placeholder: (context, url) => const Center(
+            child: CircularProgressIndicator(color: Colors.white),
+          ),
+          errorWidget: (context, url, error) =>
+              const Icon(Icons.broken_image, color: Colors.white54, size: 56),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildVideo() {
+    final controller = _videoController;
+    if (controller == null || _videoFuture == null) {
+      return const SizedBox.shrink();
+    }
+    return FutureBuilder<void>(
+      future: _videoFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const CircularProgressIndicator(color: Colors.white);
+        }
+        if (!controller.value.isInitialized) {
+          return const Icon(
+            Icons.videocam_off,
+            color: Colors.white54,
+            size: 56,
+          );
+        }
+        return GestureDetector(
+          onTap: _togglePlayback,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              AspectRatio(
+                aspectRatio: controller.value.aspectRatio,
+                child: VideoPlayer(controller),
+              ),
+              if (!_isPlaying)
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.45),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.play_arrow,
+                    color: Colors.white,
+                    size: 42,
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

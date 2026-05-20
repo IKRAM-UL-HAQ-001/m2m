@@ -4,13 +4,14 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:audioplayers/audioplayers.dart';
 
 import 'api_service.dart';
 
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
-  await NotificationService().showRemoteMessageNotification(message);
+  await NotificationService().markRemoteMessageDelivered(message);
 }
 
 class NotificationService {
@@ -23,6 +24,9 @@ class NotificationService {
   final FirebaseMessaging _fcm = FirebaseMessaging.instance;
   final FlutterLocalNotificationsPlugin _local =
       FlutterLocalNotificationsPlugin();
+  final AudioPlayer _soundPlayer = AudioPlayer();
+  final Set<String> _shownMessageIds = <String>{};
+  final Set<String> _soundedMessageIds = <String>{};
 
   static GlobalKey<NavigatorState>? navigatorKey;
   bool _localNotificationsReady = false;
@@ -39,6 +43,10 @@ class NotificationService {
     return _instance._showNotification(title: title, body: body, data: data);
   }
 
+  static Future<void> playMessageSound({String? messageId}) {
+    return _instance._playMessageSound(messageId: messageId);
+  }
+
   Future<void> initialize({required GlobalKey<NavigatorState> navKey}) async {
     navigatorKey = navKey;
 
@@ -49,7 +57,7 @@ class NotificationService {
       FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
       FirebaseMessaging.onMessage.listen((message) {
-        showRemoteMessageNotification(message);
+        handleForegroundRemoteMessage(message);
       });
 
       FirebaseMessaging.onMessageOpenedApp.listen((message) {
@@ -82,10 +90,18 @@ class NotificationService {
     );
 
     await _fcm.setForegroundNotificationPresentationOptions(
-      alert: true,
+      alert: false,
       badge: true,
       sound: true,
     );
+  }
+
+  Future<void> handleForegroundRemoteMessage(RemoteMessage message) async {
+    await markRemoteMessageDelivered(message);
+    final messageId =
+        message.data['message_id']?.toString() ??
+        message.data['id']?.toString();
+    await _playMessageSound(messageId: messageId);
   }
 
   Future<void> _setupLocalNotifications() async {
@@ -143,9 +159,14 @@ class NotificationService {
     final body = notification?.body ?? data['body'] ?? 'You have a new message';
 
     await _showNotification(title: title, body: body, data: data);
+    await markRemoteMessageDelivered(message);
+  }
 
+  Future<void> markRemoteMessageDelivered(RemoteMessage message) async {
     try {
-      final messageId = data['message_id']?.toString() ?? data['id']?.toString();
+      final data = message.data;
+      final messageId =
+          data['message_id']?.toString() ?? data['id']?.toString();
       if (messageId != null) {
         await ApiService().markMessagesDelivered([messageId]);
       }
@@ -160,9 +181,20 @@ class NotificationService {
     required Map<String, dynamic> data,
   }) async {
     await _setupLocalNotifications();
+    final messageId = data['message_id']?.toString() ?? data['id']?.toString();
+    if (messageId != null && !_shownMessageIds.add(messageId)) {
+      return;
+    }
+    if (messageId != null) {
+      Future.delayed(const Duration(minutes: 10), () {
+        _shownMessageIds.remove(messageId);
+      });
+    }
 
     await _local.show(
-      DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      messageId == null
+          ? DateTime.now().millisecondsSinceEpoch ~/ 1000
+          : messageId.hashCode,
       title,
       body,
       NotificationDetails(
@@ -183,6 +215,23 @@ class NotificationService {
       ),
       payload: jsonEncode(data),
     );
+  }
+
+  Future<void> _playMessageSound({String? messageId}) async {
+    if (messageId != null && !_soundedMessageIds.add(messageId)) {
+      return;
+    }
+    if (messageId != null) {
+      Future.delayed(const Duration(minutes: 10), () {
+        _soundedMessageIds.remove(messageId);
+      });
+    }
+    try {
+      await _soundPlayer.stop();
+      await _soundPlayer.play(AssetSource('sounds/notification.mp3'));
+    } catch (e) {
+      debugPrint('Message sound error: $e');
+    }
   }
 
   void _handleNotificationTap(Map<String, dynamic> data) {

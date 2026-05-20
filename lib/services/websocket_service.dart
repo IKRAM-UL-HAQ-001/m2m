@@ -180,20 +180,8 @@ class SocketService extends ChangeNotifier {
       );
       final message = Message.fromJson(messageData);
 
-      if (!message.isMe && message.chatId != _activeChatId) {
-        final notificationBody = message.text == '[File]'
-            ? 'New ${message.type} message'
-            : message.text;
-        NotificationService.showLocalNotification(
-          title: 'New Message',
-          body: notificationBody,
-          data: {
-            'chat_id': message.chatId,
-            'sender_id': message.senderId,
-            'message_id': message.id,
-            'message_type': message.type,
-          },
-        );
+      if (!message.isMe) {
+        NotificationService.playMessageSound(messageId: message.id);
       }
 
       _messageController.add(message);
@@ -209,7 +197,7 @@ class SocketService extends ChangeNotifier {
   }
 
   void markDelivered(List<String> messageIds) {
-    if (_channel == null || messageIds.isEmpty) return;
+    if (messageIds.isEmpty) return;
     final intIds = messageIds
         .map((id) => int.tryParse(id))
         .where((id) => id != null)
