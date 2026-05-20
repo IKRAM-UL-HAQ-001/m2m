@@ -61,7 +61,7 @@
             android:value="2" />
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
-            android:value="m2m_messages" />
+            android:value="m2m_messages_custom_v3" />
     </application>
     <queries>
         <intent>

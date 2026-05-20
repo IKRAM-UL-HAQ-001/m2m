@@ -11,10 +11,15 @@ import 'api_service.dart';
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
-  await NotificationService().markRemoteMessageDelivered(message);
+  await NotificationService().showRemoteMessageNotification(message);
 }
 
 class NotificationService {
+  static const String _messageChannelId = 'm2m_messages_custom_v3';
+  static const String _messageChannelName = 'M2M Messages';
+  static const RawResourceAndroidNotificationSound _messageSound =
+      RawResourceAndroidNotificationSound('notification');
+
   static final NotificationService _instance = NotificationService._internal();
 
   factory NotificationService() => _instance;
@@ -135,12 +140,14 @@ class NotificationService {
     );
 
     const channel = AndroidNotificationChannel(
-      'm2m_messages',
-      'M2M Messages',
+      _messageChannelId,
+      _messageChannelName,
       description: 'New message notifications',
       importance: Importance.high,
+      sound: _messageSound,
       playSound: true,
       enableVibration: true,
+      audioAttributesUsage: AudioAttributesUsage.notificationEvent,
     );
 
     await _local
@@ -199,12 +206,17 @@ class NotificationService {
       body,
       NotificationDetails(
         android: AndroidNotificationDetails(
-          'm2m_messages',
-          'M2M Messages',
+          _messageChannelId,
+          _messageChannelName,
           importance: Importance.high,
           priority: Priority.high,
           icon: '@mipmap/ic_launcher',
           color: const Color(0xFF6B00D7),
+          sound: _messageSound,
+          playSound: true,
+          audioAttributesUsage: AudioAttributesUsage.notificationEvent,
+          category: AndroidNotificationCategory.message,
+          visibility: NotificationVisibility.public,
           styleInformation: BigTextStyleInformation(body),
         ),
         iOS: const DarwinNotificationDetails(

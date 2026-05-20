@@ -47,6 +47,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   final ScrollController _scrollController = ScrollController();
   final ApiService _apiService = ApiService();
   final AudioRecorder _audioRecorder = AudioRecorder();
+  final Map<String, GlobalKey> _messageKeys = {};
 
   bool _showSendIcon = false;
   List<Message> _messages = [];
@@ -66,10 +67,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
 
   bool _showEmojiPicker = false;
   Message? _replyingToMessage;
+  String? _highlightedMessageId;
 
   bool _isOtherTyping = false;
   Timer? _typingClearTimer;
   Timer? _typingDebounceTimer;
+  Timer? _highlightTimer;
   bool _hasNotifiedTyping = false;
 
   Set<String> _downloadedUrls = {};
@@ -176,6 +179,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     _reactionSubscription?.cancel();
     _typingClearTimer?.cancel();
     _typingDebounceTimer?.cancel();
+    _highlightTimer?.cancel();
     _recordingTimer?.cancel();
     _pulseController.dispose();
     _blinkController.dispose();
@@ -234,6 +238,72 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     } else {
       _messages[existingIndex] = message;
     }
+  }
+
+  GlobalKey _messageKey(String messageId) {
+    return _messageKeys.putIfAbsent(messageId, GlobalKey.new);
+  }
+
+  Future<void> _scrollToMessage(String? messageId) async {
+    if (messageId == null || messageId.isEmpty) return;
+    final index = _messages.indexWhere((message) => message.id == messageId);
+    if (index == -1) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Original message is not loaded')),
+      );
+      return;
+    }
+
+    _focusNode.unfocus();
+    if (_showEmojiPicker) {
+      setState(() => _showEmojiPicker = false);
+    }
+    _highlightMessage(messageId);
+
+    final key = _messageKeys[messageId];
+    final targetContext = key?.currentContext;
+    if (targetContext != null) {
+      await Scrollable.ensureVisible(
+        targetContext,
+        duration: const Duration(milliseconds: 280),
+        curve: Curves.easeOutCubic,
+        alignment: 0.35,
+      );
+      return;
+    }
+
+    if (!_scrollController.hasClients) return;
+    final estimatedOffset = (index * 96.0).clamp(
+      _scrollController.position.minScrollExtent,
+      _scrollController.position.maxScrollExtent,
+    );
+    await _scrollController.animateTo(
+      estimatedOffset,
+      duration: const Duration(milliseconds: 320),
+      curve: Curves.easeOutCubic,
+    );
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final context = _messageKeys[messageId]?.currentContext;
+      if (context == null) return;
+      Scrollable.ensureVisible(
+        context,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+        alignment: 0.35,
+      );
+    });
+  }
+
+  void _highlightMessage(String messageId) {
+    _highlightTimer?.cancel();
+    setState(() => _highlightedMessageId = messageId);
+    _highlightTimer = Timer(const Duration(milliseconds: 1400), () {
+      if (mounted && _highlightedMessageId == messageId) {
+        setState(() => _highlightedMessageId = null);
+      }
+    });
   }
 
   void _applyStatus(MessageStatusUpdate status) {
@@ -1176,16 +1246,17 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
               reverse: true,
               itemCount: _messages.length,
               itemBuilder: (context, index) {
+                final message = _messages[index];
                 final showDate =
                     index == _messages.length - 1 ||
-                    !_isSameDay(
-                      _messages[index].time,
-                      _messages[index + 1].time,
-                    );
+                    !_isSameDay(message.time, _messages[index + 1].time);
                 return Column(
                   children: [
-                    if (showDate) _buildDateChip(_messages[index].time),
-                    RepaintBoundary(child: _buildMessage(_messages[index])),
+                    if (showDate) _buildDateChip(message.time),
+                    RepaintBoundary(
+                      key: _messageKey(message.id),
+                      child: _buildMessage(message),
+                    ),
                   ],
                 );
               },
@@ -1241,6 +1312,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     final isVideo = hasFile && (message.type == 'video' || _isVideoUrl(url));
     final isDocument = hasFile && !isImage && !isAudio && !isVideo;
     final isDeleted = message.isDeletedForEveryone;
+    final isHighlighted = _highlightedMessageId == message.id;
 
     return GestureDetector(
       onLongPress: () => _showMessageOptions(message),
@@ -1252,7 +1324,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
           child: Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: isMe ? AppColors.outgoingMessageColor : Colors.white,
+              color: isHighlighted
+                  ? const Color(0xFFFFF2A8)
+                  : isMe
+                  ? AppColors.outgoingMessageColor
+                  : Colors.white,
               borderRadius: isMe
                   ? const BorderRadius.only(
                       topLeft: Radius.circular(12),
@@ -1268,9 +1344,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
                     ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.06),
-                  blurRadius: 2,
-                  offset: const Offset(0, 1),
+                  color: isHighlighted
+                      ? AppColors.primaryColor.withValues(alpha: 0.22)
+                      : Colors.black.withValues(alpha: 0.06),
+                  blurRadius: isHighlighted ? 8 : 2,
+                  offset: Offset(0, isHighlighted ? 2 : 1),
                 ),
               ],
             ),
@@ -1315,46 +1393,50 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   }
 
   Widget _buildReplyQuote(Message message, bool isMe) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 6),
-      padding: const EdgeInsets.fromLTRB(8, 5, 8, 5),
-      decoration: BoxDecoration(
-        color: isMe
-            ? Colors.white.withValues(alpha: 0.45)
-            : Colors.grey.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(6),
-        border: const Border(
-          left: BorderSide(color: AppColors.primaryColor, width: 3),
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Flexible(
-            child: Text(
-              _replySummary(
-                text: message.replyToText,
-                type: message.replyToType,
-                fileName: message.replyToFileName,
-              ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey[700],
-                fontStyle: FontStyle.italic,
-              ),
-            ),
+    return InkWell(
+      onTap: () => _scrollToMessage(message.replyToId),
+      borderRadius: BorderRadius.circular(6),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.fromLTRB(8, 5, 8, 5),
+        decoration: BoxDecoration(
+          color: isMe
+              ? Colors.white.withValues(alpha: 0.45)
+              : Colors.grey.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(6),
+          border: const Border(
+            left: BorderSide(color: AppColors.primaryColor, width: 3),
           ),
-          if (_hasReplyMedia(message)) ...[
-            const SizedBox(width: 8),
-            _buildReplyMediaThumb(
-              type: message.replyToType,
-              fileUrl: message.replyToFileUrl,
-              thumbnailUrl: message.replyToThumbnailUrl,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: Text(
+                _replySummary(
+                  text: message.replyToText,
+                  type: message.replyToType,
+                  fileName: message.replyToFileName,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey[700],
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
             ),
+            if (_hasReplyMedia(message)) ...[
+              const SizedBox(width: 8),
+              _buildReplyMediaThumb(
+                type: message.replyToType,
+                fileUrl: message.replyToFileUrl,
+                thumbnailUrl: message.replyToThumbnailUrl,
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
@@ -1396,44 +1478,81 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     required String? fileUrl,
     required String? thumbnailUrl,
   }) {
-    final previewUrl = ApiService.mediaUrl(thumbnailUrl ?? fileUrl);
     final isImage =
         type == 'image' || (fileUrl != null && _isImageUrl(fileUrl));
     final isVideo =
         type == 'video' || (fileUrl != null && _isVideoUrl(fileUrl));
+    final hasThumbnail = thumbnailUrl != null && thumbnailUrl.isNotEmpty;
+    final previewUrl = ApiService.mediaUrl(
+      hasThumbnail || isImage ? (thumbnailUrl ?? fileUrl) : null,
+    );
 
-    if ((isImage || isVideo) && previewUrl.isNotEmpty) {
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(5),
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            CachedNetworkImage(
-              imageUrl: previewUrl,
-              width: 44,
-              height: 44,
-              fit: BoxFit.cover,
-              errorWidget: (context, url, error) => _replyIcon(type),
-            ),
-            if (isVideo)
-              Container(
-                width: 22,
-                height: 22,
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.45),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.play_arrow,
-                  color: Colors.white,
-                  size: 16,
-                ),
-              ),
-          ],
-        ),
+    if (previewUrl.isNotEmpty && (isImage || isVideo)) {
+      return _replyImageTile(
+        imageUrl: previewUrl,
+        showPlay: isVideo,
+        fallbackType: type,
       );
     }
+    if (isVideo) return _replyVideoTile();
     return _replyIcon(type);
+  }
+
+  Widget _replyImageTile({
+    required String imageUrl,
+    required bool showPlay,
+    required String? fallbackType,
+  }) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(5),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          CachedNetworkImage(
+            imageUrl: imageUrl,
+            width: 44,
+            height: 44,
+            fit: BoxFit.cover,
+            errorWidget: (context, url, error) => _replyIcon(fallbackType),
+          ),
+          if (showPlay) _replyPlayBadge(),
+        ],
+      ),
+    );
+  }
+
+  Widget _replyVideoTile() {
+    return Container(
+      width: 44,
+      height: 44,
+      decoration: BoxDecoration(
+        color: const Color(0xFF202124),
+        borderRadius: BorderRadius.circular(5),
+      ),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Icon(
+            Icons.videocam,
+            size: 22,
+            color: Colors.white.withValues(alpha: 0.6),
+          ),
+          _replyPlayBadge(),
+        ],
+      ),
+    );
+  }
+
+  Widget _replyPlayBadge() {
+    return Container(
+      width: 22,
+      height: 22,
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.45),
+        shape: BoxShape.circle,
+      ),
+      child: const Icon(Icons.play_arrow, color: Colors.white, size: 16),
+    );
   }
 
   Widget _replyIcon(String? type) {
