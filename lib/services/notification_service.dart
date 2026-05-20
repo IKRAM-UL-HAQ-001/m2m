@@ -5,6 +5,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api_service.dart';
 
@@ -15,6 +16,7 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 }
 
 class NotificationService {
+  static const String _shownPushMessageIdsKey = 'shown_push_message_ids';
   static const String _messageChannelId = 'm2m_messages_custom_v3';
   static const String _messageChannelName = 'M2M Messages';
   static const RawResourceAndroidNotificationSound _messageSound =
@@ -192,6 +194,9 @@ class NotificationService {
     if (messageId != null && !_shownMessageIds.add(messageId)) {
       return;
     }
+    if (messageId != null && await _wasPushMessageAlreadyShown(messageId)) {
+      return;
+    }
     if (messageId != null) {
       Future.delayed(const Duration(minutes: 10), () {
         _shownMessageIds.remove(messageId);
@@ -199,9 +204,7 @@ class NotificationService {
     }
 
     await _local.show(
-      messageId == null
-          ? DateTime.now().millisecondsSinceEpoch ~/ 1000
-          : messageId.hashCode,
+      _notificationIdForMessage(messageId),
       title,
       body,
       NotificationDetails(
@@ -227,6 +230,29 @@ class NotificationService {
       ),
       payload: jsonEncode(data),
     );
+  }
+
+  int _notificationIdForMessage(String? messageId) {
+    final parsed = int.tryParse(messageId ?? '');
+    if (parsed != null) return parsed & 0x7fffffff;
+    return DateTime.now().millisecondsSinceEpoch & 0x7fffffff;
+  }
+
+  Future<bool> _wasPushMessageAlreadyShown(String messageId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final shownIds = prefs.getStringList(_shownPushMessageIdsKey) ?? [];
+      if (shownIds.contains(messageId)) return true;
+      final nextIds = <String>[
+        messageId,
+        ...shownIds,
+      ].take(80).toList(growable: false);
+      await prefs.setStringList(_shownPushMessageIdsKey, nextIds);
+      return false;
+    } catch (e) {
+      debugPrint('Notification dedupe error: $e');
+      return false;
+    }
   }
 
   Future<void> _playMessageSound({String? messageId}) async {
