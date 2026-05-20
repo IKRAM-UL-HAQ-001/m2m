@@ -10,7 +10,7 @@ class AppColors {
 }
 
 class AppConstants {
-  static const String _defaultServerIp = '192.168.1.69:8000';
+  static const String _defaultServerIp = '54.85.57.11';
   static const String _serverIpOverride = String.fromEnvironment('SERVER_IP');
   static const String _serverBaseUrlOverride = String.fromEnvironment(
     'SERVER_BASE_URL',
