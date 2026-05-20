@@ -187,6 +187,12 @@ class SocketService extends ChangeNotifier {
         NotificationService.showLocalNotification(
           title: 'New Message',
           body: notificationBody,
+          data: {
+            'chat_id': message.chatId,
+            'sender_id': message.senderId,
+            'message_id': message.id,
+            'message_type': message.type,
+          },
         );
       }
 

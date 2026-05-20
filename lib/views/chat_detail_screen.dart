@@ -367,8 +367,22 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
         });
       }
       if (path != null) {
+        final audioFile = File(path);
+        var size = await audioFile.exists() ? await audioFile.length() : 0;
+        if (size == 0) {
+          await Future.delayed(const Duration(milliseconds: 300));
+          size = await audioFile.exists() ? await audioFile.length() : 0;
+        }
+        if (size == 0) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Voice message was empty')),
+            );
+          }
+          return;
+        }
         _sendFileMessage(
-          File(path),
+          audioFile,
           type: 'audio',
           duration: recordedDuration.inMilliseconds / 1000.0,
         );

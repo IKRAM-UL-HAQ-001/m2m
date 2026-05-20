@@ -67,9 +67,18 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      SocketService().reconnect();
-      _syncContactsIfNeeded();
+      _handleAppResumed();
     }
+  }
+
+  Future<void> _handleAppResumed() async {
+    await SocketService().reconnect();
+    if (!mounted) return;
+    await Provider.of<ChatViewModel>(
+      context,
+      listen: false,
+    ).fetchChats(isSilent: true);
+    await _syncContactsIfNeeded();
   }
 
   Future<void> _syncContactsIfNeeded() async {
