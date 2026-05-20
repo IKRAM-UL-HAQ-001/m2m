@@ -40,6 +40,8 @@ class ChatDetailScreen extends StatefulWidget {
 
 class _ChatDetailScreenState extends State<ChatDetailScreen>
     with TickerProviderStateMixin {
+  static const double _emojiPickerHeight = 280;
+
   final TextEditingController _messageController = TextEditingController();
   final FocusNode _focusNode = FocusNode();
   final ScrollController _scrollController = ScrollController();
@@ -296,8 +298,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   }
 
   void _onTextChanged(String val) {
-    setState(() => _showSendIcon = val.trim().isNotEmpty);
+    _syncSendIcon();
     _sendTypingNotification(true);
+  }
+
+  void _syncSendIcon() {
+    final shouldShow = _messageController.text.trim().isNotEmpty;
+    if (_showSendIcon == shouldShow) return;
+    setState(() => _showSendIcon = shouldShow);
   }
 
   void _sendTypingNotification(bool isTyping) {
@@ -1041,7 +1049,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
             if (_showEmojiPicker)
               RepaintBoundary(
                 child: SizedBox(
-                  height: Responsive.h(33).clamp(240, 300),
+                  height: _emojiPickerHeight,
                   child: _buildEmojiPicker(),
                 ),
               ),
@@ -1177,7 +1185,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
                 return Column(
                   children: [
                     if (showDate) _buildDateChip(_messages[index].time),
-                    _buildMessage(_messages[index]),
+                    RepaintBoundary(child: _buildMessage(_messages[index])),
                   ],
                 );
               },
@@ -1279,7 +1287,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
                       fontSize: 14,
                     ),
                   ),
-                if (!isDeleted && message.replyToText != null)
+                if (!isDeleted && message.replyToId != null)
                   _buildReplyQuote(message, isMe),
                 if (!isDeleted && message.isForwarded) _buildForwardedLabel(),
                 if (!isDeleted && isImage) _buildImageContent(message),
@@ -1319,16 +1327,131 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
           left: BorderSide(color: AppColors.primaryColor, width: 3),
         ),
       ),
-      child: Text(
-        message.replyToText!,
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          fontSize: 12,
-          color: Colors.grey[700],
-          fontStyle: FontStyle.italic,
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Flexible(
+            child: Text(
+              _replySummary(
+                text: message.replyToText,
+                type: message.replyToType,
+                fileName: message.replyToFileName,
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey[700],
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ),
+          if (_hasReplyMedia(message)) ...[
+            const SizedBox(width: 8),
+            _buildReplyMediaThumb(
+              type: message.replyToType,
+              fileUrl: message.replyToFileUrl,
+              thumbnailUrl: message.replyToThumbnailUrl,
+            ),
+          ],
+        ],
       ),
+    );
+  }
+
+  bool _hasReplyMedia(Message message) {
+    return (message.replyToFileUrl != null &&
+            message.replyToFileUrl!.isNotEmpty) ||
+        (message.replyToThumbnailUrl != null &&
+            message.replyToThumbnailUrl!.isNotEmpty) ||
+        message.replyToType == 'image' ||
+        message.replyToType == 'video' ||
+        message.replyToType == 'audio' ||
+        message.replyToType == 'document';
+  }
+
+  String _replySummary({
+    required String? text,
+    required String? type,
+    required String? fileName,
+  }) {
+    final cleanText = (text ?? '').trim();
+    if (cleanText.isNotEmpty && cleanText != '[File]') return cleanText;
+    switch (type) {
+      case 'image':
+        return 'Photo';
+      case 'video':
+        return 'Video';
+      case 'audio':
+        return 'Voice message';
+      case 'document':
+        return fileName?.isNotEmpty == true ? fileName! : 'Document';
+      default:
+        return cleanText.isNotEmpty ? cleanText : 'Message';
+    }
+  }
+
+  Widget _buildReplyMediaThumb({
+    required String? type,
+    required String? fileUrl,
+    required String? thumbnailUrl,
+  }) {
+    final previewUrl = ApiService.mediaUrl(thumbnailUrl ?? fileUrl);
+    final isImage =
+        type == 'image' || (fileUrl != null && _isImageUrl(fileUrl));
+    final isVideo =
+        type == 'video' || (fileUrl != null && _isVideoUrl(fileUrl));
+
+    if ((isImage || isVideo) && previewUrl.isNotEmpty) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(5),
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            CachedNetworkImage(
+              imageUrl: previewUrl,
+              width: 44,
+              height: 44,
+              fit: BoxFit.cover,
+              errorWidget: (context, url, error) => _replyIcon(type),
+            ),
+            if (isVideo)
+              Container(
+                width: 22,
+                height: 22,
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.45),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.play_arrow,
+                  color: Colors.white,
+                  size: 16,
+                ),
+              ),
+          ],
+        ),
+      );
+    }
+    return _replyIcon(type);
+  }
+
+  Widget _replyIcon(String? type) {
+    final icon = switch (type) {
+      'image' => Icons.image,
+      'video' => Icons.videocam,
+      'audio' => Icons.mic,
+      'document' => Icons.insert_drive_file,
+      _ => Icons.reply,
+    };
+    return Container(
+      width: 44,
+      height: 44,
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(5),
+      ),
+      child: Icon(icon, size: 22, color: Colors.black45),
     );
   }
 
@@ -1609,7 +1732,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
                   ),
                 ),
                 Text(
-                  msg.text == '[File]' ? '📎 ${msg.type}' : msg.text,
+                  _replySummary(
+                    text: msg.text,
+                    type: msg.type,
+                    fileName: msg.fileName,
+                  ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontSize: 13, color: Colors.grey),
@@ -1617,6 +1744,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
               ],
             ),
           ),
+          if (msg.fileUrl != null && msg.fileUrl!.isNotEmpty) ...[
+            const SizedBox(width: 8),
+            _buildReplyMediaThumb(
+              type: msg.type,
+              fileUrl: msg.fileUrl,
+              thumbnailUrl: msg.thumbnailUrl,
+            ),
+          ],
           IconButton(
             icon: const Icon(Icons.close, size: 18),
             onPressed: () => setState(() => _replyingToMessage = null),
@@ -1915,17 +2050,13 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     return EmojiPicker(
       textEditingController: _messageController,
       onEmojiSelected: (_, emoji) {
-        setState(
-          () => _showSendIcon = _messageController.text.trim().isNotEmpty,
-        );
+        _syncSendIcon();
       },
       onBackspacePressed: () {
-        setState(
-          () => _showSendIcon = _messageController.text.trim().isNotEmpty,
-        );
+        _syncSendIcon();
       },
       config: Config(
-        height: 280,
+        height: _emojiPickerHeight,
         checkPlatformCompatibility: true,
         emojiViewConfig: EmojiViewConfig(
           backgroundColor: Colors.white,

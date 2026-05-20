@@ -50,6 +50,9 @@ class Message {
   final String? replyToId;
   final String? replyToText;
   final String? replyToType;
+  final String? replyToFileUrl;
+  final String? replyToThumbnailUrl;
+  final String? replyToFileName;
   final DateTime? deliveredAt;
   final DateTime? readAt;
   final DateTime? editedAt;
@@ -79,6 +82,9 @@ class Message {
     this.replyToId,
     this.replyToText,
     this.replyToType,
+    this.replyToFileUrl,
+    this.replyToThumbnailUrl,
+    this.replyToFileName,
     this.deliveredAt,
     this.readAt,
     this.editedAt,
@@ -122,6 +128,9 @@ class Message {
     String? replyToId;
     String? replyToText;
     String? replyToType;
+    String? replyToFileUrl;
+    String? replyToThumbnailUrl;
+    String? replyToFileName;
     final replyTo = normalizedJson['reply_to'];
     if (replyTo is Map) {
       replyToId = replyTo['id']?.toString();
@@ -129,6 +138,15 @@ class Message {
           replyTo['encrypted_text']?.toString() ??
           replyTo['content']?.toString();
       replyToType = replyTo['message_type']?.toString();
+      final replyFile = UrlHelper.fixUrl(
+        replyTo['file_url'] ?? replyTo['file'],
+      );
+      final replyThumb = UrlHelper.fixUrl(
+        replyTo['thumbnail_url'] ?? replyTo['thumbnail'],
+      );
+      replyToFileUrl = replyFile.isNotEmpty ? replyFile : null;
+      replyToThumbnailUrl = replyThumb.isNotEmpty ? replyThumb : null;
+      replyToFileName = replyTo['file_name']?.toString();
     } else if (replyTo != null) {
       replyToId = replyTo.toString();
     }
@@ -150,6 +168,9 @@ class Message {
       replyToId: replyToId,
       replyToText: replyToText,
       replyToType: replyToType,
+      replyToFileUrl: replyToFileUrl,
+      replyToThumbnailUrl: replyToThumbnailUrl,
+      replyToFileName: replyToFileName,
       deliveredAt: _parseDate(normalizedJson['delivered_at']),
       readAt: _parseDate(normalizedJson['read_at']),
       editedAt: _parseDate(normalizedJson['edited_at']),
@@ -218,6 +239,9 @@ class Message {
     String? replyToId,
     String? replyToText,
     String? replyToType,
+    String? replyToFileUrl,
+    String? replyToThumbnailUrl,
+    String? replyToFileName,
     DateTime? deliveredAt,
     DateTime? readAt,
     DateTime? editedAt,
@@ -247,6 +271,9 @@ class Message {
       replyToId: replyToId ?? this.replyToId,
       replyToText: replyToText ?? this.replyToText,
       replyToType: replyToType ?? this.replyToType,
+      replyToFileUrl: replyToFileUrl ?? this.replyToFileUrl,
+      replyToThumbnailUrl: replyToThumbnailUrl ?? this.replyToThumbnailUrl,
+      replyToFileName: replyToFileName ?? this.replyToFileName,
       deliveredAt: deliveredAt ?? this.deliveredAt,
       readAt: readAt ?? this.readAt,
       editedAt: editedAt ?? this.editedAt,
