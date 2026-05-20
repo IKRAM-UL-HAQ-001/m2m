@@ -1,12 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../models/message.dart';
-import '../utils/constants.dart';
 import 'api_service.dart';
+import 'dio_client.dart';
 import 'notification_service.dart';
 
 typedef SocketChannelFactory = WebSocketChannel Function(Uri uri);
@@ -49,6 +50,8 @@ class SocketService extends ChangeNotifier {
   Timer? _reconnectTimer;
   Timer? _heartbeatTimer;
   bool _shouldReconnect = true;
+  int _reconnectAttempts = 0;
+  static const int _maxReconnectAttempts = 10;
   SocketConnectionState _connectionState = SocketConnectionState.disconnected;
 
   SocketConnectionState get connectionState => _connectionState;
@@ -92,7 +95,10 @@ class SocketService extends ChangeNotifier {
       final ticketData =
           await (_ticketProvider?.call() ?? _apiService.fetchWebSocketTicket());
       final ticket = ticketData['ticket'].toString();
-      final wsUrl = '${AppConstants.wsBaseUrl}?ticket=$ticket';
+      final wsBase = DioClient.wsUrl.endsWith('/')
+          ? DioClient.wsUrl
+          : '${DioClient.wsUrl}/';
+      final wsUrl = '$wsBase?ticket=$ticket';
       final channel = _channelFactory(Uri.parse(wsUrl));
       _channel = channel;
       _channelSubscription = channel.stream.listen(
@@ -103,6 +109,7 @@ class SocketService extends ChangeNotifier {
       await channel.ready;
       if (!identical(_channel, channel)) return;
       _updateConnectionState(SocketConnectionState.connected);
+      _reconnectAttempts = 0;
       _startHeartbeat();
     } catch (e) {
       _handleDisconnect(triggerReconnect: true);
@@ -224,7 +231,11 @@ class SocketService extends ChangeNotifier {
 
   void _scheduleReconnect() {
     if (!_shouldReconnect || _reconnectTimer != null) return;
-    _reconnectTimer = Timer(const Duration(seconds: 5), () {
+    if (_reconnectAttempts >= _maxReconnectAttempts) return;
+
+    final seconds = min(30, pow(2, _reconnectAttempts).toInt());
+    _reconnectAttempts++;
+    _reconnectTimer = Timer(Duration(seconds: seconds), () {
       _reconnectTimer = null;
       if (_shouldReconnect) {
         connect();
@@ -249,6 +260,21 @@ class SocketService extends ChangeNotifier {
     _channel = null;
     _updateConnectionState(SocketConnectionState.disconnected);
     channel?.sink.close();
+  }
+
+  Future<void> reconnect() async {
+    _shouldReconnect = true;
+    _reconnectAttempts = 0;
+    _heartbeatTimer?.cancel();
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    await _channelSubscription?.cancel();
+    _channelSubscription = null;
+    final channel = _channel;
+    _channel = null;
+    _updateConnectionState(SocketConnectionState.disconnected);
+    await channel?.sink.close();
+    await connect();
   }
 
   @override

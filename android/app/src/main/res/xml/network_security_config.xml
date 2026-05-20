@@ -5,6 +5,9 @@
             <certificates src="system" />
         </trust-anchors>
     </base-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain>54.85.57.11</domain>
+    </domain-config>
     <debug-overrides>
         <trust-anchors>
             <certificates src="system" />

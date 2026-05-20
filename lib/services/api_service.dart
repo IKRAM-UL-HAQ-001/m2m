@@ -1,11 +1,9 @@
-import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
-import 'package:http/http.dart' as http;
-import 'package:http_parser/http_parser.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -15,6 +13,7 @@ import '../models/message.dart';
 import '../models/shared_media.dart';
 import '../models/user_status.dart';
 import '../utils/constants.dart';
+import 'dio_client.dart';
 
 class ApiException implements Exception {
   final int statusCode;
@@ -44,7 +43,15 @@ class ApiService {
   static const String _lastContactsSyncKey = 'last_contacts_sync_at';
   static Future<ContactDiscoveryResult>? _contactsSyncInFlight;
 
-  static bool _isRefreshing = false;
+  Dio get _dio {
+    DioClient().initialize();
+    return DioClient().dio;
+  }
+
+  Dio get _uploadDio {
+    DioClient().initialize();
+    return DioClient().uploadDio;
+  }
 
   static String createClientUuid() {
     final bytes = List<int>.generate(16, (_) => _uuidRandom.nextInt(256));
@@ -60,109 +67,38 @@ class ApiService {
         '${chars.substring(20)}';
   }
 
-  Future<Map<String, String>> _getHeaders({bool json = true}) async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('access_token');
-    return {
-      if (json) 'Content-Type': 'application/json',
-      if (token != null) 'Authorization': 'Bearer $token',
-    };
+  static String mediaUrl(String? path) => DioClient.mediaUrl(path);
+
+  Map<String, dynamic> _asMap(dynamic data) {
+    if (data is Map<String, dynamic>) return data;
+    if (data is Map) return Map<String, dynamic>.from(data);
+    return <String, dynamic>{};
   }
 
-  Future<bool> _refreshToken() async {
-    if (_isRefreshing) return false;
-    _isRefreshing = true;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final refreshToken = prefs.getString('refresh_token');
-      if (refreshToken == null) return false;
-
-      final response = await http.post(
-        Uri.parse('$authUrl/token/refresh/'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({'refresh': refreshToken}),
-      );
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        await prefs.setString('access_token', data['access']);
-        if (data['refresh'] != null) {
-          await prefs.setString('refresh_token', data['refresh']);
-        }
-        return true;
-      }
-      return false;
-    } catch (_) {
-      return false;
-    } finally {
-      _isRefreshing = false;
-    }
+  List<dynamic> _asList(dynamic data) {
+    if (data is List) return data;
+    return const [];
   }
 
-  Never _throwApiError(http.Response response) {
-    String message = 'Request failed';
-    try {
-      final body = json.decode(response.body);
-      if (body is Map<String, dynamic>) {
-        message =
-            (body['error'] ?? body['detail'] ?? body['message'] ?? message)
-                .toString();
-      }
-    } catch (_) {
-      message = response.body.isNotEmpty ? response.body : message;
+  Never _throwApiError(Response<dynamic> response) {
+    final data = response.data;
+    var message = 'Request failed';
+    if (data is Map) {
+      message = (data['error'] ?? data['detail'] ?? data['message'] ?? message)
+          .toString();
+    } else if (data != null) {
+      message = data.toString();
     }
-    throw ApiException(response.statusCode, message);
-  }
-
-  Never _throwNetworkError(Object error, Uri uri) {
-    throw ApiException(0, 'Network error for $uri: $error');
-  }
-
-  Future<Map<String, dynamic>> _decodeJsonResponse(
-    http.Response response, {
-    Uri? retryUri,
-    String method = 'GET',
-    String? retryBody,
-  }) async {
-    if (response.statusCode == 401 && retryUri != null) {
-      final refreshed = await _refreshToken();
-      if (refreshed) {
-        final newHeaders = await _getHeaders();
-        final retryResponse = method == 'POST'
-            ? await http.post(retryUri, headers: newHeaders, body: retryBody)
-            : await http.get(retryUri, headers: newHeaders);
-        if (retryResponse.statusCode >= 200 && retryResponse.statusCode < 300) {
-          return Map<String, dynamic>.from(json.decode(retryResponse.body));
-        }
-        _throwApiError(retryResponse);
-      }
-    }
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      _throwApiError(response);
-    }
-    return Map<String, dynamic>.from(json.decode(response.body));
+    throw ApiException(response.statusCode ?? 0, message);
   }
 
   Future<bool> requestOtp(String phoneNumber, String countryCode) async {
-    final uri = Uri.parse('$authUrl/request-otp/');
-    debugPrint('Request OTP URL: $uri');
-    try {
-      final response = await http.post(
-        uri,
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({
-          'phone_number': phoneNumber,
-          'country_code': countryCode,
-        }),
-      );
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        _throwApiError(response);
-      }
-      return true;
-    } on SocketException catch (error) {
-      _throwNetworkError(error, uri);
-    } on http.ClientException catch (error) {
-      _throwNetworkError(error, uri);
-    }
+    final response = await _dio.post(
+      '/auth/request-otp/',
+      data: {'phone_number': phoneNumber, 'country_code': countryCode},
+    );
+    debugPrint('Request OTP status: ${response.statusCode}');
+    return true;
   }
 
   Future<Map<String, dynamic>> verifyOtp(
@@ -170,84 +106,49 @@ class ApiService {
     String countryCode,
     String otp,
   ) async {
-    final uri = Uri.parse('$authUrl/verify-otp/');
-    try {
-      final response = await http.post(
-        uri,
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({
-          'phone_number': phoneNumber,
-          'country_code': countryCode,
-          'otp': otp,
-        }),
-      );
-      return _decodeJsonResponse(response);
-    } on SocketException catch (error) {
-      _throwNetworkError(error, uri);
-    } on http.ClientException catch (error) {
-      _throwNetworkError(error, uri);
-    }
+    final response = await _dio.post(
+      '/auth/verify-otp/',
+      data: {
+        'phone_number': phoneNumber,
+        'country_code': countryCode,
+        'otp': otp,
+      },
+    );
+    return _asMap(response.data);
   }
 
   Future<String> generateLinkToken() async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('$authUrl/generate-link-token/'),
-      headers: headers,
-    );
-    final data = await _decodeJsonResponse(response);
-    return data['token'].toString();
+    final response = await _dio.get('/auth/generate-link-token/');
+    return _asMap(response.data)['token'].toString();
   }
 
   Future<bool> activateLinkToken(String token) async {
-    final headers = await _getHeaders();
-    final response = await http.post(
-      Uri.parse('$authUrl/activate-link-token/'),
-      headers: headers,
-      body: json.encode({'token': token}),
-    );
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      _throwApiError(response);
-    }
+    await _dio.post('/auth/activate-link-token/', data: {'token': token});
     return true;
   }
 
   Future<Map<String, dynamic>> checkLinkStatus(String token) async {
-    final response = await http.get(
-      Uri.parse('$authUrl/check-link-status/$token/'),
-    );
-    return _decodeJsonResponse(response);
+    final response = await _dio.get('/auth/check-link-status/$token/');
+    return _asMap(response.data);
   }
 
   Future<Map<String, dynamic>> fetchWebSocketTicket() async {
-    final headers = await _getHeaders();
-    final response = await http.post(
-      Uri.parse('$authUrl/ws-ticket/'),
-      headers: headers,
-      body: json.encode({}),
-    );
-    return _decodeJsonResponse(response);
+    final response = await _dio.post('/auth/ws-ticket/', data: {});
+    return _asMap(response.data);
+  }
+
+  Future<String?> getWsTicket() async {
+    final data = await fetchWebSocketTicket();
+    return data['ticket'] as String?;
   }
 
   Future<void> sendPresenceHeartbeat() async {
-    final headers = await _getHeaders();
-    final response = await http.post(
-      Uri.parse('$authUrl/presence/heartbeat/'),
-      headers: headers,
-      body: json.encode({}),
-    );
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      _throwApiError(response);
-    }
+    await _dio.post('/auth/presence/heartbeat/', data: {});
   }
 
   Future<Map<String, dynamic>> getPresence(String userId) async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('$authUrl/presence/$userId/'),
-      headers: headers,
-    );
-    return _decodeJsonResponse(response);
+    final response = await _dio.get('/auth/presence/$userId/');
+    return _asMap(response.data);
   }
 
   static String normalizeContactPhone(
@@ -350,15 +251,7 @@ class ApiService {
     }
     final contactList = uniqueContacts.values.toList();
 
-    final headers = await _getHeaders();
-    final response = await http.post(
-      Uri.parse('$authUrl/sync-contacts/'),
-      headers: headers,
-      body: json.encode({'contacts': contactList}),
-    );
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      _throwApiError(response);
-    }
+    await _dio.post('/auth/sync-contacts/', data: {'contacts': contactList});
     final onAppContacts = await fetchUsers(contacts: contactList);
     final onAppPhones = onAppContacts
         .map((contact) => normalizeContactPhone(contact['phone']?.toString()))
@@ -408,41 +301,34 @@ class ApiService {
     String? imagePath, {
     String? about,
   }) async {
-    final url = Uri.parse('$authUrl/complete-profile/');
-    final headers = await _getHeaders();
     if (imagePath == null) {
       final body = {'name': name};
       if (about != null) body['about'] = about;
-      final response = await http.post(
-        url,
-        headers: headers,
-        body: json.encode(body),
-      );
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        _throwApiError(response);
-      }
+      await _dio.post('/auth/complete-profile/', data: body);
       return true;
     }
 
-    final request = http.MultipartRequest('POST', url);
-    request.headers.addAll(await _getHeaders(json: false));
-    request.fields['name'] = name;
-    if (about != null) request.fields['about'] = about;
-    request.files.add(
-      await http.MultipartFile.fromPath('profile_picture', imagePath),
+    final data = <String, dynamic>{'name': name};
+    if (about != null) data['about'] = about;
+    data['profile_picture'] = await MultipartFile.fromFile(
+      imagePath,
+      filename: imagePath.split('/').last,
     );
-    final response = await http.Response.fromStream(await request.send());
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      _throwApiError(response);
-    }
+    final formData = FormData.fromMap(data);
+    await _uploadDio.post(
+      '/auth/complete-profile/',
+      data: formData,
+      options: Options(extra: {'upload': true}),
+    );
     return true;
   }
 
   Future<List<Chat>> getChats({int offset = 0, int limit = 20}) async {
-    final headers = await _getHeaders();
-    final uri = Uri.parse('$baseUrl/chats/?offset=$offset&limit=$limit');
-    final response = await http.get(uri, headers: headers);
-    final data = await _decodeJsonResponse(response);
+    final response = await _dio.get(
+      '/api/chats/',
+      queryParameters: {'offset': offset, 'limit': limit},
+    );
+    final data = _asMap(response.data);
     final results = List<dynamic>.from(data['results'] ?? const []);
     return results
         .map((item) => Chat.fromJson(Map<String, dynamic>.from(item)))
@@ -451,15 +337,13 @@ class ApiService {
 
   Future<List<Message>> getMessages(String chatId, {String? cursor}) async {
     if (chatId.startsWith('new_')) return [];
-    final headers = await _getHeaders();
-    final suffix = cursor == null
-        ? ''
-        : '?cursor=${Uri.encodeQueryComponent(cursor)}';
-    final response = await http.get(
-      Uri.parse('$baseUrl/chats/$chatId/messages/$suffix'),
-      headers: headers,
+    final queryParameters = <String, dynamic>{'page_size': 30};
+    if (cursor != null) queryParameters['cursor'] = cursor;
+    final response = await _dio.get(
+      '/api/chats/$chatId/messages/',
+      queryParameters: queryParameters,
     );
-    final data = await _decodeJsonResponse(response);
+    final data = _asMap(response.data);
     final results = List<dynamic>.from(data['results'] ?? const []);
     return results
         .map((item) => Message.fromJson(Map<String, dynamic>.from(item)))
@@ -467,12 +351,8 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>> getStatusPrivacy() async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('$baseUrl/status/privacy/'),
-      headers: headers,
-    );
-    return _decodeJsonResponse(response);
+    final response = await _dio.get('/api/status/privacy/');
+    return _asMap(response.data);
   }
 
   Future<void> updateStatusPrivacy({
@@ -480,19 +360,14 @@ class ApiService {
     required List<String> exceptUserIds,
     required List<String> onlyUserIds,
   }) async {
-    final headers = await _getHeaders();
-    final response = await http.post(
-      Uri.parse('$baseUrl/status/privacy/'),
-      headers: headers,
-      body: json.encode({
+    await _dio.post(
+      '/api/status/privacy/',
+      data: {
         'privacy': privacy,
         'except_user_ids': exceptUserIds,
         'only_user_ids': onlyUserIds,
-      }),
+      },
     );
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      _throwApiError(response);
-    }
   }
 
   Future<List<ContactUser>> getAppContacts() async {
@@ -511,291 +386,195 @@ class ApiService {
     String? type,
     String? replyTo,
     double? duration,
+    void Function(int, int)? onProgress,
   }) async {
-    final url = Uri.parse('$baseUrl/send/');
-    final request = http.MultipartRequest('POST', url);
-    request.headers.addAll(await _getHeaders(json: false));
-    request.fields['receiver_id'] = receiverId;
-    request.fields['encrypted_text'] = text;
-    request.fields['client_uuid'] = clientUuid;
-    if (replyTo != null) {
-      request.fields['reply_to'] = replyTo;
-    }
-    if (duration != null) {
-      request.fields['duration'] = duration.toStringAsFixed(1);
-    }
-    // message_type is set below based on file extension when file is present
-    if (file == null) {
-      request.fields['message_type'] = type ?? 'text';
-    }
-
-    if (file != null) {
-      final ext = file.path.split('.').last.toLowerCase();
-      String contentType;
-      String subtype;
-      String detectedType;
-
-      if (['mp4', 'mov', 'avi', 'mkv', '3gp', 'webm'].contains(ext)) {
-        contentType = 'video';
-        subtype = ext == 'mov'
-            ? 'quicktime'
-            : (ext == 'mkv' ? 'x-matroska' : 'mp4');
-        detectedType = 'video';
-      } else if (['mp3'].contains(ext)) {
-        contentType = 'audio';
-        subtype = 'mpeg';
-        detectedType = 'audio';
-      } else if (['m4a', 'aac'].contains(ext)) {
-        contentType = 'audio';
-        subtype = 'mp4';
-        detectedType = 'audio';
-      } else if (['ogg', 'oga'].contains(ext)) {
-        contentType = 'audio';
-        subtype = 'ogg';
-        detectedType = 'audio';
-      } else if (['wav'].contains(ext)) {
-        contentType = 'audio';
-        subtype = 'wav';
-        detectedType = 'audio';
-      } else if (['pdf'].contains(ext)) {
-        contentType = 'application';
-        subtype = 'pdf';
-        detectedType = 'document';
-      } else if (['doc', 'docx'].contains(ext)) {
-        contentType = 'application';
-        subtype = 'msword';
-        detectedType = 'document';
-      } else if (['xls', 'xlsx'].contains(ext)) {
-        contentType = 'application';
-        subtype = 'vnd.ms-excel';
-        detectedType = 'document';
-      } else if (['txt'].contains(ext)) {
-        contentType = 'text';
-        subtype = 'plain';
-        detectedType = 'document';
-      } else if (['png'].contains(ext)) {
-        contentType = 'image';
-        subtype = 'png';
-        detectedType = 'image';
-      } else if (['gif'].contains(ext)) {
-        contentType = 'image';
-        subtype = 'gif';
-        detectedType = 'image';
-      } else if (['webp'].contains(ext)) {
-        contentType = 'image';
-        subtype = 'webp';
-        detectedType = 'image';
-      } else {
-        // Default: treat as image/jpeg for jpg/jpeg and anything else
-        contentType = 'image';
-        subtype = 'jpeg';
-        detectedType = 'image';
-      }
-
-      // Explicit type parameter overrides detection
-      request.fields['message_type'] = type ?? detectedType;
-
-      request.files.add(
-        await http.MultipartFile.fromPath(
-          'file',
+    final data = <String, dynamic>{
+      'receiver_id': receiverId,
+      'encrypted_text': text,
+      'client_uuid': clientUuid,
+      if (duration != null) 'duration': duration.toStringAsFixed(1),
+      'message_type':
+          type ?? (file == null ? 'text' : _detectMessageType(file)),
+      if (file != null)
+        'file': await MultipartFile.fromFile(
           file.path,
-          contentType: MediaType(contentType, subtype),
+          filename: file.path.split('/').last,
         ),
-      );
-    }
+    };
+    if (replyTo != null) data['reply_to'] = replyTo;
+    final formData = FormData.fromMap(data);
 
-    final response = await http.Response.fromStream(await request.send());
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      _throwApiError(response);
-    }
-    return Message.fromJson(
-      Map<String, dynamic>.from(json.decode(response.body)),
+    final response = await _uploadDio.post(
+      '/api/send/',
+      data: formData,
+      onSendProgress: onProgress,
+      options: Options(extra: {'upload': true}),
     );
+    return Message.fromJson(_asMap(response.data));
+  }
+
+  Future<Map<String, dynamic>> sendFile({
+    required String chatId,
+    required File file,
+    required String messageType,
+    double? duration,
+    void Function(int, int)? onProgress,
+  }) async {
+    final formData = FormData.fromMap({
+      'chat_id': chatId,
+      'message_type': messageType,
+      if (duration != null) 'duration': duration.toStringAsFixed(1),
+      'file': await MultipartFile.fromFile(
+        file.path,
+        filename: file.path.split('/').last,
+      ),
+    });
+    final response = await _uploadDio.post(
+      '/api/send/',
+      data: formData,
+      onSendProgress: onProgress,
+      options: Options(extra: {'upload': true}),
+    );
+    return _asMap(response.data);
+  }
+
+  String _detectMessageType(File file) {
+    final ext = file.path.split('.').last.toLowerCase();
+    if (['mp4', 'mov', 'avi', 'mkv', '3gp', 'webm'].contains(ext)) {
+      return 'video';
+    }
+    if (['mp3', 'm4a', 'aac', 'ogg', 'oga', 'wav', 'opus'].contains(ext)) {
+      return 'audio';
+    }
+    if ([
+      'pdf',
+      'doc',
+      'docx',
+      'xls',
+      'xlsx',
+      'txt',
+      'ppt',
+      'pptx',
+      'csv',
+      'zip',
+      'rar',
+      '7z',
+      'tar',
+      'gz',
+    ].contains(ext)) {
+      return 'document';
+    }
+    return 'image';
   }
 
   Future<List<Map<String, dynamic>>> fetchUsers({
     List<Map<String, dynamic>>? contacts,
   }) async {
-    final headers = await _getHeaders();
-    final uri = Uri.parse('$authUrl/list-users/');
     final response = contacts == null
-        ? await http.get(uri, headers: headers)
-        : await http.post(
-            uri,
-            headers: headers,
-            body: json.encode({'contacts': contacts}),
-          );
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      _throwApiError(response);
-    }
-    return List<Map<String, dynamic>>.from(json.decode(response.body));
+        ? await _dio.get('/auth/list-users/')
+        : await _dio.post('/auth/list-users/', data: {'contacts': contacts});
+    return _asList(
+      response.data,
+    ).map((item) => Map<String, dynamic>.from(item as Map)).toList();
   }
 
   Future<void> inviteContact(String phone, String contactName) async {
-    final headers = await _getHeaders();
-    final response = await http.post(
-      Uri.parse('$authUrl/invite-contact/'),
-      headers: headers,
-      body: json.encode({'phone': phone, 'contact_name': contactName}),
+    await _dio.post(
+      '/auth/invite-contact/',
+      data: {'phone': phone, 'contact_name': contactName},
     );
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      _throwApiError(response);
-    }
   }
 
   Future<void> updateFcmToken(String token) async {
-    final headers = await _getHeaders();
-    final response = await http.post(
-      Uri.parse('$authUrl/update-fcm-token/'),
-      headers: headers,
-      body: json.encode({'fcm_token': token}),
-    );
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      _throwApiError(response);
-    }
+    await _dio.post('/auth/update-fcm-token/', data: {'fcm_token': token});
   }
 
   Future<bool> deleteAccount(String otp) async {
-    final headers = await _getHeaders();
-    final response = await http.post(
-      Uri.parse('$authUrl/delete-account/'),
-      headers: headers,
-      body: json.encode({'otp': otp}),
-    );
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      _throwApiError(response);
-    }
+    await _dio.post('/auth/delete-account/', data: {'otp': otp});
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear();
     return true;
   }
 
   Future<void> sendTyping(String chatId, bool isTyping) async {
-    final headers = await _getHeaders();
-    final response = await http.post(
-      Uri.parse('$baseUrl/typing/'),
-      headers: headers,
-      body: json.encode({'chat_id': int.parse(chatId), 'is_typing': isTyping}),
+    await _dio.post(
+      '/api/typing/',
+      data: {'chat_id': int.parse(chatId), 'is_typing': isTyping},
     );
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      _throwApiError(response);
-    }
   }
 
   Future<void> markMessagesDelivered(List<String> messageIds) async {
     if (messageIds.isEmpty) return;
-    final headers = await _getHeaders();
-    final response = await http.post(
-      Uri.parse('$baseUrl/messages/delivered/'),
-      headers: headers,
-      body: json.encode({'message_ids': messageIds}),
+    await _dio.post(
+      '/api/messages/delivered/',
+      data: {'message_ids': messageIds},
     );
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      _throwApiError(response);
-    }
   }
 
   Future<void> markChatRead(String chatId) async {
     if (chatId.startsWith('new_')) return;
-    final headers = await _getHeaders();
-    final response = await http.post(
-      Uri.parse('$baseUrl/messages/read/'),
-      headers: headers,
-      body: json.encode({'chat_id': int.parse(chatId)}),
+    await _dio.post(
+      '/api/messages/read/',
+      data: {'chat_id': int.parse(chatId)},
     );
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      _throwApiError(response);
-    }
   }
 
   Future<void> deleteMessage(String messageId, String deleteType) async {
-    final headers = await _getHeaders();
-    final response = await http.post(
-      Uri.parse('$baseUrl/delete-message/'),
-      headers: headers,
-      body: json.encode({
-        'message_id': int.parse(messageId),
-        'delete_type': deleteType,
-      }),
+    await _dio.post(
+      '/api/delete-message/',
+      data: {'message_id': int.parse(messageId), 'delete_type': deleteType},
     );
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      _throwApiError(response);
-    }
   }
 
   Future<void> editMessage(String messageId, String newText) async {
-    final headers = await _getHeaders();
-    final response = await http.post(
-      Uri.parse('$baseUrl/edit-message/'),
-      headers: headers,
-      body: json.encode({
-        'message_id': int.parse(messageId),
-        'encrypted_text': newText,
-      }),
+    await _dio.post(
+      '/api/edit-message/',
+      data: {'message_id': int.parse(messageId), 'encrypted_text': newText},
     );
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      _throwApiError(response);
-    }
   }
 
   Future<void> reactToMessage(String messageId, String emoji) async {
-    final headers = await _getHeaders();
-    final response = await http.post(
-      Uri.parse('$baseUrl/react/'),
-      headers: headers,
-      body: json.encode({'message_id': int.parse(messageId), 'emoji': emoji}),
+    await _dio.post(
+      '/api/react/',
+      data: {'message_id': int.parse(messageId), 'emoji': emoji},
     );
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      _throwApiError(response);
-    }
   }
 
   Future<Message> forwardMessage({
     required String originalMessageId,
     required String toChatId,
   }) async {
-    final headers = await _getHeaders();
-    final response = await http.post(
-      Uri.parse('$baseUrl/forward/'),
-      headers: headers,
-      body: json.encode({
+    final response = await _dio.post(
+      '/api/forward/',
+      data: {
         'message_id': int.parse(originalMessageId),
         'chat_id': int.parse(toChatId),
-      }),
+      },
     );
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      _throwApiError(response);
-    }
-    return Message.fromJson(
-      Map<String, dynamic>.from(json.decode(response.body)),
-    );
+    return Message.fromJson(_asMap(response.data));
   }
 
   Future<List<StatusGroup>> fetchStatusFeed() async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('$baseUrl/status/feed/'),
-      headers: headers,
-    );
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      _throwApiError(response);
-    }
-    return List<dynamic>.from(json.decode(response.body))
-        .map((item) => StatusGroup.fromJson(Map<String, dynamic>.from(item)))
+    final response = await _dio.get('/api/status/feed/');
+    return _asList(response.data)
+        .map(
+          (item) =>
+              StatusGroup.fromJson(Map<String, dynamic>.from(item as Map)),
+        )
         .toList();
   }
 
+  Future<List<dynamic>> getStatusFeed() async {
+    final response = await _dio.get('/api/status/feed/');
+    return _asList(response.data);
+  }
+
   Future<List<UserStatus>> fetchMyStatuses() async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('$baseUrl/status/my/'),
-      headers: headers,
-    );
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      _throwApiError(response);
-    }
-    return List<dynamic>.from(json.decode(response.body))
-        .map((item) => UserStatus.fromJson(Map<String, dynamic>.from(item)))
+    final response = await _dio.get('/api/status/my/');
+    return _asList(response.data)
+        .map(
+          (item) => UserStatus.fromJson(Map<String, dynamic>.from(item as Map)),
+        )
         .toList();
   }
 
@@ -806,25 +585,18 @@ class ApiService {
     String privacy = 'all_contacts',
     List<String> userIds = const [],
   }) async {
-    final headers = await _getHeaders();
-    final response = await http.post(
-      Uri.parse('$baseUrl/status/create/'),
-      headers: headers,
-      body: json.encode({
+    final response = await _dio.post(
+      '/api/status/create/',
+      data: {
         'status_type': 'text',
         'text_content': text,
         'background_color': backgroundColor,
         'font_size': fontSize,
         'privacy': privacy,
         'user_ids': userIds.map(int.parse).toList(),
-      }),
+      },
     );
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      _throwApiError(response);
-    }
-    return UserStatus.fromJson(
-      Map<String, dynamic>.from(json.decode(response.body)),
-    );
+    return UserStatus.fromJson(_asMap(response.data));
   }
 
   Future<UserStatus> createMediaStatus(
@@ -832,60 +604,44 @@ class ApiService {
     String statusType, {
     String privacy = 'all_contacts',
     List<String> userIds = const [],
+    void Function(int, int)? onProgress,
   }) async {
-    final url = Uri.parse('$baseUrl/status/create/');
-    final request = http.MultipartRequest('POST', url);
-    request.headers.addAll(await _getHeaders(json: false));
-    request.fields['status_type'] = statusType;
-    request.fields['privacy'] = privacy;
-    if (userIds.isNotEmpty) {
-      request.fields['user_ids'] = json.encode(userIds.map(int.parse).toList());
-    }
-    request.files.add(
-      await http.MultipartFile.fromPath('media_file', file.path),
+    final formData = FormData.fromMap({
+      'status_type': statusType,
+      'privacy': privacy,
+      if (userIds.isNotEmpty) 'user_ids': userIds.map(int.parse).toList(),
+      'media_file': await MultipartFile.fromFile(
+        file.path,
+        filename: file.path.split('/').last,
+      ),
+    });
+    final response = await _uploadDio.post(
+      '/api/status/create/',
+      data: formData,
+      onSendProgress: onProgress,
+      options: Options(extra: {'upload': true}),
     );
-    final response = await http.Response.fromStream(await request.send());
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      _throwApiError(response);
-    }
-    return UserStatus.fromJson(
-      Map<String, dynamic>.from(json.decode(response.body)),
-    );
+    return UserStatus.fromJson(_asMap(response.data));
   }
 
   Future<void> markStatusViewed(String statusId) async {
-    final headers = await _getHeaders();
-    final response = await http.post(
-      Uri.parse('$baseUrl/status/$statusId/view/'),
-      headers: headers,
-      body: json.encode({}),
-    );
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      _throwApiError(response);
-    }
+    await _dio.post('/api/status/$statusId/view/', data: {});
   }
 
   Future<List<StatusViewer>> fetchStatusViewers(String statusId) async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('$baseUrl/status/$statusId/views/'),
-      headers: headers,
-    );
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      _throwApiError(response);
-    }
-    return List<dynamic>.from(json.decode(response.body))
-        .map((item) => StatusViewer.fromJson(Map<String, dynamic>.from(item)))
+    final response = await _dio.get('/api/status/$statusId/views/');
+    return _asList(response.data)
+        .map(
+          (item) =>
+              StatusViewer.fromJson(Map<String, dynamic>.from(item as Map)),
+        )
         .toList();
   }
 
   Future<void> deleteStatus(String statusId) async {
-    final headers = await _getHeaders();
-    final response = await http.delete(
-      Uri.parse('$baseUrl/status/$statusId/delete/'),
-      headers: headers,
-    );
-    if (response.statusCode < 200 || response.statusCode >= 300) {
+    final response = await _dio.delete('/api/status/$statusId/delete/');
+    if ((response.statusCode ?? 500) < 200 ||
+        (response.statusCode ?? 500) >= 300) {
       _throwApiError(response);
     }
   }
@@ -894,14 +650,15 @@ class ApiService {
     String userId, {
     String type = 'media',
   }) async {
-    final headers = await _getHeaders();
-    final uri = Uri.parse('$baseUrl/shared-media/?user_id=$userId&type=$type');
-    final response = await http.get(uri, headers: headers);
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      _throwApiError(response);
-    }
-    return List<dynamic>.from(json.decode(response.body))
-        .map((item) => SharedMedia.fromJson(Map<String, dynamic>.from(item)))
+    final response = await _dio.get(
+      '/api/shared-media/',
+      queryParameters: {'user_id': userId, 'type': type},
+    );
+    return _asList(response.data)
+        .map(
+          (item) =>
+              SharedMedia.fromJson(Map<String, dynamic>.from(item as Map)),
+        )
         .toList();
   }
 }

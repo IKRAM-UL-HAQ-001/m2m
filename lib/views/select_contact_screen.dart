@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -245,7 +246,7 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
       },
       leading: CircleAvatar(
         backgroundImage: profilePic.isNotEmpty
-            ? NetworkImage(profilePic)
+            ? CachedNetworkImageProvider(ApiService.mediaUrl(profilePic))
             : null,
         backgroundColor: Colors.grey[300],
         child: profilePic.isEmpty

@@ -1,10 +1,12 @@
 import 'dart:async';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../models/user_status.dart';
+import '../../services/api_service.dart';
 import '../../viewmodels/status_viewmodel.dart';
 import 'status_tab.dart';
 
@@ -95,8 +97,10 @@ class _StatusViewerScreenState extends State<StatusViewerScreen> {
                     radius: 20,
                     backgroundColor: Colors.white24,
                     backgroundImage: _ownerHasPhoto
-                        ? NetworkImage(
-                            widget.statusGroup.owner.profilePictureUrl!,
+                        ? CachedNetworkImageProvider(
+                            ApiService.mediaUrl(
+                              widget.statusGroup.owner.profilePictureUrl,
+                            ),
                           )
                         : null,
                     child: _ownerHasPhoto
@@ -272,14 +276,12 @@ class _StatusViewerScreenState extends State<StatusViewerScreen> {
         child: Icon(Icons.broken_image_outlined, color: Colors.white, size: 56),
       );
     }
-    return Image.network(
-      imageUrl,
+    return CachedNetworkImage(
+      imageUrl: ApiService.mediaUrl(imageUrl),
       fit: BoxFit.contain,
-      loadingBuilder: (context, child, progress) {
-        if (progress == null) return child;
-        return const Center(child: CircularProgressIndicator());
-      },
-      errorBuilder: (context, error, stackTrace) => const Center(
+      placeholder: (context, url) =>
+          const Center(child: CircularProgressIndicator()),
+      errorWidget: (context, url, error) => const Center(
         child: Icon(Icons.broken_image_outlined, color: Colors.white, size: 56),
       ),
     );
@@ -398,7 +400,9 @@ class _StatusViewerScreenState extends State<StatusViewerScreen> {
                   return ListTile(
                     leading: CircleAvatar(
                       backgroundImage: hasPhoto
-                          ? NetworkImage(viewer.pictureUrl!)
+                          ? CachedNetworkImageProvider(
+                              ApiService.mediaUrl(viewer.pictureUrl!),
+                            )
                           : null,
                       child: hasPhoto ? null : const Icon(Icons.person),
                     ),

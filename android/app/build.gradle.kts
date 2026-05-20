@@ -12,6 +12,12 @@ val localPropertiesFile = rootProject.file("local.properties")
 if (localPropertiesFile.exists()) {
     localProperties.load(localPropertiesFile.inputStream())
 }
+val hasReleaseSigning = listOf(
+    "releaseKeyAlias",
+    "releaseKeyPassword",
+    "releaseStoreFile",
+    "releaseStorePassword",
+).all { key -> !localProperties.getProperty(key).isNullOrBlank() }
 
 android {
     namespace = "com.danish.m2m"
@@ -51,7 +57,11 @@ android {
             isShrinkResources = false
         }
         release {
-            signingConfig = signingConfigs.getByName("release")
+            signingConfig = if (hasReleaseSigning) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
             isMinifyEnabled = false
             isShrinkResources = false
         }

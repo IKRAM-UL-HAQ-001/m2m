@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:audioplayers/audioplayers.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dio/dio.dart';
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:file_picker/file_picker.dart';
@@ -1031,7 +1032,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
                   radius: 18,
                   backgroundColor: Colors.grey[300],
                   backgroundImage: widget.chat.avatarUrl.isNotEmpty
-                      ? NetworkImage(widget.chat.avatarUrl)
+                      ? CachedNetworkImageProvider(
+                          ApiService.mediaUrl(widget.chat.avatarUrl),
+                        )
                       : null,
                   child: widget.chat.avatarUrl.isEmpty
                       ? Icon(Icons.person, size: 20, color: Colors.grey[600])
@@ -1108,7 +1111,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       decoration: BoxDecoration(
         color: AppColors.chatBackgroundColor,
         image: const DecorationImage(
-          image: NetworkImage(
+          image: CachedNetworkImageProvider(
             'https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png',
           ),
           fit: BoxFit.cover,
@@ -1320,10 +1323,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       children: [
         ClipRRect(
           borderRadius: BorderRadius.circular(8),
-          child: Image.network(
-            message.fileUrl!,
+          child: CachedNetworkImage(
+            imageUrl: ApiService.mediaUrl(message.fileUrl),
             fit: BoxFit.cover,
-            errorBuilder: (context, error, stackTrace) =>
+            errorWidget: (context, url, error) =>
                 const Icon(Icons.broken_image, size: 48),
           ),
         ),

@@ -10,18 +10,68 @@ class AppColors {
 }
 
 class AppConstants {
-  static const String _configuredBaseHost = String.fromEnvironment(
+  static const String _defaultServerIp = '54.85.57.11';
+  static const String _serverIpOverride = String.fromEnvironment('SERVER_IP');
+  static const String _serverBaseUrlOverride = String.fromEnvironment(
+    'SERVER_BASE_URL',
+  );
+  static const String _apiBaseUrlOverride = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'http://10.0.2.2:8000',
   );
-  static final String baseHost = _configuredBaseHost.replaceFirst(
-    RegExp(r'/+$'),
-    '',
+  static const String _authBaseUrlOverride = String.fromEnvironment(
+    'AUTH_BASE_URL',
   );
-  static final String apiBaseUrl = '$baseHost/api';
-  static final String authBaseUrl = '$baseHost/auth';
-  static const String wsBaseUrl = String.fromEnvironment(
+  static const String _wsBaseUrlOverride = String.fromEnvironment(
     'WS_BASE_URL',
-    defaultValue: 'ws://10.0.2.2:8000/ws/chat/',
   );
+
+  static String get serverIp =>
+      _serverIpOverride.isNotEmpty ? _serverIpOverride : _defaultServerIp;
+
+  static String get serverBaseUrl {
+    if (_serverBaseUrlOverride.isNotEmpty) {
+      return _stripTrailingSlashes(_serverBaseUrlOverride);
+    }
+    if (_apiBaseUrlOverride.isNotEmpty) {
+      return _stripPathSuffix(_apiBaseUrlOverride, '/api');
+    }
+    if (_authBaseUrlOverride.isNotEmpty) {
+      return _stripPathSuffix(_authBaseUrlOverride, '/auth');
+    }
+    return 'http://$serverIp:8000';
+  }
+
+  static String get apiBaseUrl => _apiBaseUrlOverride.isNotEmpty
+      ? _stripTrailingSlashes(_apiBaseUrlOverride)
+      : '$serverBaseUrl/api';
+
+  static String get authBaseUrl => _authBaseUrlOverride.isNotEmpty
+      ? _stripTrailingSlashes(_authBaseUrlOverride)
+      : '$serverBaseUrl/auth';
+
+  static String get wsBaseUrl => _wsBaseUrlOverride.isNotEmpty
+      ? _wsBaseUrlOverride
+      : _webSocketUrlFromServerBaseUrl(serverBaseUrl);
+
+  static String _stripTrailingSlashes(String value) {
+    return value.replaceFirst(RegExp(r'/+$'), '');
+  }
+
+  static String _stripPathSuffix(String value, String suffix) {
+    final normalized = _stripTrailingSlashes(value);
+    if (normalized.endsWith(suffix)) {
+      return normalized.substring(0, normalized.length - suffix.length);
+    }
+    return normalized;
+  }
+
+  static String _webSocketUrlFromServerBaseUrl(String value) {
+    final normalized = _stripTrailingSlashes(value);
+    final wsBase = normalized.startsWith('https://')
+        ? normalized.replaceFirst('https://', 'wss://')
+        : normalized.startsWith('http://')
+        ? normalized.replaceFirst('http://', 'ws://')
+        : normalized;
+    return '$wsBase/ws/chat/';
+  }
 }

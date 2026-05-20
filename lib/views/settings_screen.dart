@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
@@ -387,7 +388,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 backgroundImage: hasLocalImage
                                     ? FileImage(File(_profilePictureUrl))
                                     : hasNetworkImage
-                                    ? NetworkImage(_profilePictureUrl)
+                                    ? CachedNetworkImageProvider(
+                                            ApiService.mediaUrl(
+                                              _profilePictureUrl,
+                                            ),
+                                          )
                                           as ImageProvider
                                     : null,
                                 child: (!hasLocalImage && !hasNetworkImage)

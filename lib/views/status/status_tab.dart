@@ -3,8 +3,10 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 import '../../models/user_status.dart';
+import '../../services/api_service.dart';
 import '../../utils/constants.dart';
 import '../../viewmodels/status_viewmodel.dart';
 import '../../widgets/highlighted_text.dart';
@@ -359,7 +361,9 @@ class _StatusAvatar extends StatelessWidget {
               child: CircleAvatar(
                 radius: 26,
                 backgroundColor: Colors.white,
-                backgroundImage: hasImage ? NetworkImage(imageUrl!) : null,
+                backgroundImage: hasImage
+                    ? CachedNetworkImageProvider(ApiService.mediaUrl(imageUrl!))
+                    : null,
                 child: hasImage
                     ? null
                     : Icon(Icons.person, color: Colors.grey[600], size: 30),

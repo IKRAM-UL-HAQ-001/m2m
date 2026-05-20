@@ -92,7 +92,10 @@ class MediaTab extends StatelessWidget {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  CachedNetworkImage(imageUrl: imageUrl, fit: BoxFit.cover),
+                  CachedNetworkImage(
+                    imageUrl: ApiService.mediaUrl(imageUrl),
+                    fit: BoxFit.cover,
+                  ),
                   if (media.messageType == 'video')
                     const Center(
                       child: Icon(
@@ -131,7 +134,7 @@ class MediaTab extends StatelessWidget {
               final item = items[index];
               return Center(
                 child: CachedNetworkImage(
-                  imageUrl: item.fileUrl,
+                  imageUrl: ApiService.mediaUrl(item.fileUrl),
                   fit: BoxFit.contain,
                 ),
               );

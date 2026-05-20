@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 import '../models/chat.dart';
+import '../services/api_service.dart';
 import '../viewmodels/chat_viewmodel.dart';
 import '../widgets/highlighted_text.dart';
 import '../widgets/profile_quick_modal.dart';
@@ -94,7 +96,9 @@ class ChatsListView extends StatelessWidget {
               radius: 26,
               backgroundColor: Colors.grey[300],
               backgroundImage: chat.avatarUrl.isNotEmpty
-                  ? NetworkImage(chat.avatarUrl)
+                  ? CachedNetworkImageProvider(
+                      ApiService.mediaUrl(chat.avatarUrl),
+                    )
                   : null,
               child: chat.avatarUrl.isEmpty
                   ? Icon(Icons.person, color: Colors.grey[600])

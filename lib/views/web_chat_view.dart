@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../models/chat.dart';
 import '../models/message.dart';
 import '../services/api_service.dart';
@@ -147,7 +148,9 @@ class _WebChatViewState extends State<WebChatView> {
               CircleAvatar(
                 backgroundColor: Colors.grey[300],
                 backgroundImage: widget.chat.avatarUrl.isNotEmpty
-                    ? NetworkImage(widget.chat.avatarUrl)
+                    ? CachedNetworkImageProvider(
+                        ApiService.mediaUrl(widget.chat.avatarUrl),
+                      )
                     : null,
                 child: widget.chat.avatarUrl.isEmpty
                     ? const Icon(Icons.person, color: Colors.grey)
@@ -182,7 +185,7 @@ class _WebChatViewState extends State<WebChatView> {
             decoration: BoxDecoration(
               color: AppColors.chatBackgroundColor,
               image: const DecorationImage(
-                image: NetworkImage(
+                image: CachedNetworkImageProvider(
                   "https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png",
                 ),
                 fit: BoxFit.cover,

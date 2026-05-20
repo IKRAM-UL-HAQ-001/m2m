@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 import '../models/chat.dart';
 import '../models/message.dart';
@@ -156,7 +157,9 @@ class _ForwardContactPickerSheetState extends State<ForwardContactPickerSheet> {
                       return ListTile(
                         leading: CircleAvatar(
                           backgroundImage: avatarUrl.isNotEmpty
-                              ? NetworkImage(avatarUrl)
+                              ? CachedNetworkImageProvider(
+                                  ApiService.mediaUrl(avatarUrl),
+                                )
                               : null,
                           child: avatarUrl.isEmpty
                               ? const Icon(Icons.person)

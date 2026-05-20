@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
+import '../services/api_service.dart';
 import '../utils/constants.dart';
 import '../views/profile_page.dart';
 
@@ -70,10 +72,10 @@ class ProfileQuickModal extends StatelessWidget {
                   child: ColoredBox(
                     color: Colors.grey.shade200,
                     child: hasAvatar
-                        ? Image.network(
-                            avatarUrl,
+                        ? CachedNetworkImage(
+                            imageUrl: ApiService.mediaUrl(avatarUrl),
                             fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) =>
+                            errorWidget: (context, url, error) =>
                                 _emptyAvatar(size: 96),
                           )
                         : _emptyAvatar(size: 96),

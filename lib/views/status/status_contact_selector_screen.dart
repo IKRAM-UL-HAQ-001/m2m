@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 import '../../models/contact_user.dart';
+import '../../services/api_service.dart';
 import '../../utils/constants.dart';
 
 class StatusContactSelectorScreen extends StatefulWidget {
@@ -142,7 +144,9 @@ class _StatusContactSelectorScreenState
                             CircleAvatar(
                               radius: 24,
                               backgroundImage: contact.photoUrl != null
-                                  ? NetworkImage(contact.photoUrl!)
+                                  ? CachedNetworkImageProvider(
+                                      ApiService.mediaUrl(contact.photoUrl!),
+                                    )
                                   : null,
                               backgroundColor: AppColors.primaryColor
                                   .withValues(alpha: 0.2),

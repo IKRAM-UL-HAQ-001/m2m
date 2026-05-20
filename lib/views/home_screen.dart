@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../utils/constants.dart';
 import '../utils/responsive.dart';
 import '../services/api_service.dart';
+import '../services/websocket_service.dart';
 import '../viewmodels/auth_viewmodel.dart';
 import '../viewmodels/chat_viewmodel.dart';
 import '../viewmodels/status_viewmodel.dart';
@@ -66,6 +67,7 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      SocketService().reconnect();
       _syncContactsIfNeeded();
     }
   }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 import '../services/api_service.dart';
 import '../utils/constants.dart';
@@ -69,7 +70,9 @@ class _ProfilePageState extends State<ProfilePage> {
                     radius: 58,
                     backgroundColor: Colors.grey[300],
                     backgroundImage: hasAvatar
-                        ? NetworkImage(widget.avatarUrl)
+                        ? CachedNetworkImageProvider(
+                            ApiService.mediaUrl(widget.avatarUrl),
+                          )
                         : null,
                     child: hasAvatar
                         ? null

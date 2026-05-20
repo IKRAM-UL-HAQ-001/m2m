@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 import '../../models/contact_user.dart';
 import '../../services/api_service.dart';
@@ -321,7 +322,9 @@ class _ContactChipRow extends StatelessWidget {
         avatar: CircleAvatar(
           radius: 12,
           backgroundImage: contact.photoUrl != null
-              ? NetworkImage(contact.photoUrl!)
+              ? CachedNetworkImageProvider(
+                  ApiService.mediaUrl(contact.photoUrl!),
+                )
               : null,
           child: contact.photoUrl == null
               ? Text(

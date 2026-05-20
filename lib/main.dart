@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'models/chat.dart';
 import 'services/api_service.dart';
+import 'services/dio_client.dart';
 import 'viewmodels/chat_viewmodel.dart';
 import 'viewmodels/auth_viewmodel.dart';
 import 'viewmodels/status_viewmodel.dart';
@@ -30,6 +31,7 @@ void main() async {
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
   ]);
+  DioClient().initialize();
 
   // Request notification permission early so Firebase can deliver messages
   await PermissionService.requestNotification();
