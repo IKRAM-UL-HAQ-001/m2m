@@ -59,7 +59,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   Duration _recordingDuration = Duration.zero;
   Timer? _recordingTimer;
   Offset _recordingStartPos = Offset.zero;
-  Offset _recordingCurrentOffset = Offset.zero;
+  final ValueNotifier<Offset> _recordingCurrentOffset = ValueNotifier<Offset>(Offset.zero);
   late AnimationController _pulseController;
   late AnimationController _blinkController;
   late Animation<double> _pulseAnimation;
@@ -192,6 +192,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     _recordingTimer?.cancel();
     _pulseController.dispose();
     _blinkController.dispose();
+    _recordingCurrentOffset.dispose();
     if (_chatViewModel.activeChatId == _currentChatId) {
       _chatViewModel.setActiveChat(null);
     }
@@ -446,12 +447,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       final recordedDuration = _recordingDuration;
       final path = await _audioRecorder.stop();
       if (mounted) {
+        _recordingCurrentOffset.value = Offset.zero;
         setState(() {
           _isRecording = false;
           _isLocked = false;
           _isCancelling = false;
           _recordingDuration = Duration.zero;
-          _recordingCurrentOffset = Offset.zero;
         });
       }
       if (path != null) {
@@ -494,12 +495,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     _blinkController.reset();
     await _audioRecorder.stop();
     if (mounted) {
+      _recordingCurrentOffset.value = Offset.zero;
       setState(() {
         _isRecording = false;
         _isLocked = false;
         _isCancelling = false;
         _recordingDuration = Duration.zero;
-        _recordingCurrentOffset = Offset.zero;
       });
     }
   }
@@ -507,10 +508,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   void _lockRecording() {
     if (_isLocked || !_isRecording) return;
     HapticFeedback.heavyImpact();
+    _recordingCurrentOffset.value = Offset.zero;
     setState(() {
       _isLocked = true;
       _isCancelling = false;
-      _recordingCurrentOffset = Offset.zero;
     });
   }
 
@@ -863,7 +864,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
               onTap: () {
                 Navigator.pop(ctx);
                 setState(() => _replyingToMessage = message);
-                _focusNode.requestFocus();
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) _focusNode.requestFocus();
+                });
               },
             ),
             if (message.text.isNotEmpty && message.text != '[File]')
@@ -1104,7 +1107,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   Widget build(BuildContext context) {
     Responsive.init(context);
     return Scaffold(
-      resizeToAvoidBottomInset: true,
+      resizeToAvoidBottomInset: false,
       appBar: _buildAppBar(),
       body: SafeArea(
         top: false,
@@ -1112,33 +1115,25 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
         child: Column(
           children: [
             Expanded(
-              child: RepaintBoundary(
-                child: GestureDetector(
-                  onTap: () {
-                    _focusNode.unfocus();
-                    if (_showEmojiPicker) {
-                      setState(() => _showEmojiPicker = false);
-                    }
-                  },
-                  child: _buildChatArea(),
-                ),
+              child: GestureDetector(
+                onTap: () {
+                  _focusNode.unfocus();
+                  if (_showEmojiPicker) {
+                    setState(() => _showEmojiPicker = false);
+                  }
+                },
+                child: _buildChatArea(),
               ),
             ),
             _buildComposerArea(),
-            Visibility(
-              visible: _showEmojiPicker,
-              maintainState: true,
-              maintainAnimation: true,
-              child: RepaintBoundary(
+            if (_showEmojiPicker)
+              RepaintBoundary(
                 child: SizedBox(
-                  height: _showEmojiPicker
-                      ? (_emojiPickerHeight - MediaQuery.of(context).viewInsets.bottom)
-                          .clamp(0.0, _emojiPickerHeight)
-                      : 0.0,
+                  height: _emojiPickerHeight,
                   child: _buildEmojiPicker(),
                 ),
               ),
-            ),
+            SizedBox(height: MediaQuery.of(context).viewInsets.bottom),
           ],
         ),
       ),
@@ -1260,6 +1255,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
               keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
               reverse: true,
+              addAutomaticKeepAlives: false,
               itemCount: _messages.length,
               itemBuilder: (context, index) {
                 final message = _messages[index];
@@ -2039,25 +2035,30 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
 
   Widget _buildLockIndicatorAbove() {
     if (!_isRecording || _isLocked) return const SizedBox.shrink();
-    final lockProgress = (-_recordingCurrentOffset.dy / 120.0).clamp(0.0, 1.0);
-    if (lockProgress <= 0.01) return const SizedBox.shrink();
-    return Opacity(
-      opacity: lockProgress,
-      child: Container(
-        width: 36,
-        height: 36,
-        margin: const EdgeInsets.only(bottom: 6),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          shape: BoxShape.circle,
-          boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4)],
-        ),
-        child: Icon(
-          lockProgress > 0.75 ? Icons.lock : Icons.lock_open,
-          color: lockProgress > 0.75 ? AppColors.primaryColor : Colors.grey,
-          size: 18,
-        ),
-      ),
+    return ValueListenableBuilder<Offset>(
+      valueListenable: _recordingCurrentOffset,
+      builder: (context, offset, _) {
+        final lockProgress = (-offset.dy / 120.0).clamp(0.0, 1.0);
+        if (lockProgress <= 0.01) return const SizedBox.shrink();
+        return Opacity(
+          opacity: lockProgress,
+          child: Container(
+            width: 36,
+            height: 36,
+            margin: const EdgeInsets.only(bottom: 6),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+              boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4)],
+            ),
+            child: Icon(
+              lockProgress > 0.75 ? Icons.lock : Icons.lock_open,
+              color: lockProgress > 0.75 ? AppColors.primaryColor : Colors.grey,
+              size: 18,
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -2065,9 +2066,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     return Listener(
       onPointerDown: (event) {
         if (_showSendIcon || _isRecording) return;
+        _recordingCurrentOffset.value = Offset.zero;
         setState(() {
           _recordingStartPos = event.position;
-          _recordingCurrentOffset = Offset.zero;
           _isCancelling = false;
         });
         _startRecording();
@@ -2075,7 +2076,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       onPointerMove: (event) {
         if (!_isRecording || _isLocked) return;
         final offset = event.position - _recordingStartPos;
-        setState(() => _recordingCurrentOffset = offset);
+        _recordingCurrentOffset.value = offset;
         if (offset.dx < -100) {
           HapticFeedback.lightImpact();
           _cancelRecording();
@@ -2179,7 +2180,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   void _toggleEmojiPicker() {
     if (_showEmojiPicker) {
       setState(() => _showEmojiPicker = false);
-      _focusNode.requestFocus();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _focusNode.requestFocus();
+      });
     } else {
       _focusNode.unfocus();
       setState(() => _showEmojiPicker = true);
