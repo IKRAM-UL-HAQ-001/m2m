@@ -6,6 +6,7 @@ import 'services/api_service.dart';
 import 'services/dio_client.dart';
 import 'viewmodels/chat_viewmodel.dart';
 import 'viewmodels/auth_viewmodel.dart';
+import 'viewmodels/call_viewmodel.dart';
 import 'viewmodels/status_viewmodel.dart';
 import 'views/chat_detail_screen.dart';
 import 'views/splash_screen.dart';
@@ -59,6 +60,7 @@ void main() async {
           },
         ),
         ChangeNotifierProvider(create: (_) => StatusViewModel()),
+        ChangeNotifierProvider(create: (_) => CallViewModel()),
       ],
       child: MyApp(navigatorKey: navigatorKey),
     ),
