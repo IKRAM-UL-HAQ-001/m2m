@@ -14,11 +14,11 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _phoneController = TextEditingController();
-  String _selectedCountry = "United States";
+  String _selectedCountry = "United Arab Emirates";
   String _countryCode = "1";
 
   final Map<String, String> _countryCodes = {
-    "United States": "1",
+    "United Arab Emirates": "971",
     "Pakistan": "92",
     "India": "91",
   };
