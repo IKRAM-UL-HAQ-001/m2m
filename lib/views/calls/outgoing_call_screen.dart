@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../models/call_session.dart';
+import '../../utils/constants.dart';
 import '../../viewmodels/call_viewmodel.dart';
 import 'active_audio_call_screen.dart';
 import 'active_video_call_screen.dart';
@@ -77,52 +78,53 @@ class _OutgoingCallScreenState extends State<OutgoingCallScreen> {
       builder: (context, vm, child) {
         final call = vm.currentCall;
         final participant = call?.receiver;
-        return Scaffold(
-          backgroundColor: const Color(0xFF111827),
-          body: SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                children: [
-                  const Spacer(),
-                  if (participant != null) callAvatar(participant, radius: 54),
-                  const SizedBox(height: 18),
-                  Text(
-                    participant?.name ?? 'Calling',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 24,
-                      fontWeight: FontWeight.w600,
-                    ),
-                    overflow: TextOverflow.ellipsis,
+        return CallScreenScaffold(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              children: [
+                const SizedBox(height: 24),
+                LinearProgressIndicator(
+                  minHeight: 3,
+                  color: AppColors.primaryColor,
+                  backgroundColor: AppColors.outgoingMessageColor,
+                ),
+                const Spacer(),
+                if (participant != null) callAvatar(participant, radius: 58),
+                const SizedBox(height: 20),
+                Text(
+                  participant?.name ?? 'Calling',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    call == null
-                        ? 'Calling'
-                        : '${call.callType.value == 'video' ? 'Video' : 'Audio'} call',
-                    style: const TextStyle(color: Colors.white70),
-                  ),
-                  const SizedBox(height: 20),
-                  Text(
-                    vm.errorMessage ??
-                        callStatusText(call?.status ?? 'initiated'),
-                    style: TextStyle(
-                      color: vm.errorMessage == null
-                          ? Colors.white70
-                          : Colors.redAccent,
-                      fontSize: 16,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const Spacer(),
-                  CallCircleButton(
-                    icon: Icons.call_end,
-                    backgroundColor: Colors.red,
-                    onPressed: vm.isConnecting ? null : () => vm.cancelCall(),
-                  ),
-                ],
-              ),
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                CallStatusText(
+                  text: call == null
+                      ? 'Calling...'
+                      : '${call.callType == CallType.video ? 'Video' : 'Audio'} call',
+                ),
+                const SizedBox(height: 20),
+                CallStatusText(
+                  text:
+                      vm.errorMessage ??
+                      '${callStatusText(call?.status ?? 'initiated')}...',
+                  isError: vm.errorMessage != null,
+                ),
+                const Spacer(),
+                CallCircleButton(
+                  icon: Icons.call_end,
+                  label: 'Cancel',
+                  tooltip: 'Cancel call',
+                  backgroundColor: Colors.red,
+                  iconColor: Colors.white,
+                  size: 64,
+                  onPressed: vm.isConnecting ? null : () => vm.cancelCall(),
+                ),
+                const SizedBox(height: 28),
+              ],
             ),
           ),
         );

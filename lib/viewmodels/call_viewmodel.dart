@@ -278,6 +278,44 @@ class CallViewModel extends ChangeNotifier {
     _setState(CallState.incoming);
   }
 
+  Future<bool> setIncomingCallFromPush(Map<String, dynamic> data) async {
+    final callId = data['call_id']?.toString();
+    if (callId == null || callId.isEmpty) return false;
+    if (!canStartCall && _currentCall?.id != callId) return false;
+
+    try {
+      final call = await _apiService.getCallDetail(int.parse(callId));
+      if (call.isTerminal || call.status != 'ringing') return false;
+      setIncomingCall(call);
+      return true;
+    } catch (_) {
+      final callerName = data['caller_name']?.toString() ?? 'Incoming call';
+      final callType = CallType.fromString(data['call_type']);
+      setIncomingCall(
+        CallSession(
+          id: callId,
+          uuid: callId,
+          caller: CallParticipant(
+            id: data['caller_id']?.toString() ?? '',
+            name: callerName,
+            phone: '',
+            avatarUrl: data['caller_profile_picture']?.toString(),
+          ),
+          receiver: CallParticipant(
+            id: ApiService.currentUserId ?? '',
+            name: '',
+            phone: '',
+          ),
+          callType: callType,
+          status: 'ringing',
+          roomName: data['room_name']?.toString() ?? '',
+          isActive: true,
+        ),
+      );
+      return true;
+    }
+  }
+
   void toggleMute() {
     _isMuted = !_isMuted;
     notifyListeners();

@@ -188,7 +188,7 @@ class SocketService extends ChangeNotifier {
       );
       final message = Message.fromJson(messageData);
 
-      if (!message.isMe) {
+      if (!message.isMe && message.chatId == _activeChatId) {
         NotificationService.playMessageSound(messageId: message.id);
       }
 

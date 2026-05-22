@@ -83,6 +83,7 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   StreamSubscription? _callEventSubscription;
+  StreamSubscription? _incomingCallNotificationSubscription;
   AppLifecycleState _lifecycleState = AppLifecycleState.resumed;
   String? _presentedIncomingCallId;
 
@@ -94,11 +95,15 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     _callEventSubscription = SocketService().callEventStream.listen(
       _handleCallEvent,
     );
+    _incomingCallNotificationSubscription = NotificationService()
+        .incomingCallTapStream
+        .listen(_handleIncomingCallNotification);
   }
 
   @override
   void dispose() {
     _callEventSubscription?.cancel();
+    _incomingCallNotificationSubscription?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -114,7 +119,8 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
     if (event.type != 'call_invite') {
       if (_presentedIncomingCallId == event.call.id.toString() &&
-          event.call.isTerminal) {
+          _isTerminalCallEvent(event)) {
+        NotificationService().dismissIncomingCall(event.call.id);
         _presentedIncomingCallId = null;
       }
       return;
@@ -122,11 +128,38 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
     if (_lifecycleState != AppLifecycleState.resumed) return;
 
-    final callId = event.call.id.toString();
+    _presentIncomingCall(event.call.id.toString());
+  }
+
+  Future<void> _handleIncomingCallNotification(
+    IncomingCallNotificationTap tap,
+  ) async {
+    final callId = tap.data['call_id']?.toString();
+    if (callId == null || callId.isEmpty) return;
+
+    final viewModel = context.read<CallViewModel>();
+    final ready = await viewModel.setIncomingCallFromPush(tap.data);
+    if (!ready || !mounted) return;
+
+    if (tap.actionId == NotificationService.rejectCallActionId) {
+      await NotificationService().dismissIncomingCall(callId);
+      await viewModel.rejectCall(int.tryParse(callId));
+      return;
+    }
+
+    await _presentIncomingCall(callId);
+
+    if (tap.actionId == NotificationService.acceptCallActionId) {
+      await NotificationService().dismissIncomingCall(callId);
+      await viewModel.acceptCall(int.tryParse(callId));
+    }
+  }
+
+  Future<void> _presentIncomingCall(String callId) async {
     if (_presentedIncomingCallId == callId) return;
 
     _presentedIncomingCallId = callId;
-    widget.navigatorKey.currentState
+    await widget.navigatorKey.currentState
         ?.push(
           MaterialPageRoute(
             builder: (_) => const IncomingCallScreen(),
@@ -138,6 +171,28 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
             _presentedIncomingCallId = null;
           }
         });
+  }
+
+  bool _isTerminalCallEvent(CallEvent event) {
+    const terminalEvents = {
+      'call_rejected',
+      'call_cancelled',
+      'call_ended',
+      'call_missed',
+      'call_busy',
+      'call_failed',
+    };
+    const terminalStatuses = {
+      'rejected',
+      'cancelled',
+      'ended',
+      'missed',
+      'busy',
+      'failed',
+    };
+    return event.call.isTerminal ||
+        terminalEvents.contains(event.type) ||
+        terminalStatuses.contains(event.call.status);
   }
 
   @override

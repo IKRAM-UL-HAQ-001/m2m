@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../models/call_participant.dart';
 import '../../models/call_session.dart';
 import '../../services/api_service.dart';
+import '../../utils/constants.dart';
 import '../../viewmodels/call_viewmodel.dart';
 import 'call_screen_helpers.dart';
 
@@ -42,7 +43,7 @@ class _CallsTabState extends State<CallsTab> {
 
         if (vm.isLoadingHistory && calls.isEmpty) {
           return const ColoredBox(
-            color: Colors.white,
+            color: AppColors.scaffoldBackgroundColor,
             child: Center(child: CircularProgressIndicator()),
           );
         }
@@ -81,18 +82,20 @@ class _CallHistoryTile extends StatelessWidget {
     final time = call.createdAt ?? call.startedAt ?? DateTime.now();
     final statusColor = switch (call.status) {
       'missed' || 'rejected' || 'failed' => Colors.red,
-      'ended' => Colors.green,
-      _ => Colors.grey,
+      'ended' => const Color(0xFF4CAF50),
+      _ => AppColors.primaryColor,
     };
 
     return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       leading: CircleAvatar(
-        backgroundColor: const Color(0xFFEDE7F6),
+        radius: 26,
+        backgroundColor: Colors.grey[300],
         backgroundImage: participant.avatarUrl != null
             ? NetworkImage(ApiService.mediaUrl(participant.avatarUrl))
             : null,
         child: participant.avatarUrl == null
-            ? const Icon(Icons.person, color: Color(0xFF6B00D7))
+            ? Icon(Icons.person, color: Colors.grey[600])
             : null,
       ),
       title: Text(
@@ -127,7 +130,7 @@ class _CallHistoryTile extends StatelessWidget {
         children: [
           Icon(
             call.callType == CallType.video ? Icons.videocam : Icons.call,
-            color: const Color(0xFF6B00D7),
+            color: AppColors.primaryColor,
             size: 20,
           ),
           const SizedBox(height: 4),
@@ -149,7 +152,7 @@ class _EmptyCallsState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ColoredBox(
-      color: Colors.white,
+      color: AppColors.scaffoldBackgroundColor,
       child: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,

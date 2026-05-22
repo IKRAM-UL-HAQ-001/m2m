@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../utils/constants.dart';
 import '../../viewmodels/call_viewmodel.dart';
 import 'call_screen_helpers.dart';
 
@@ -53,63 +54,84 @@ class _ActiveAudioCallScreenState extends State<ActiveAudioCallScreen> {
       builder: (context, vm, child) {
         final call = vm.currentCall;
         final participant = call == null ? null : otherParticipant(call);
-        return Scaffold(
-          backgroundColor: const Color(0xFF111827),
-          body: SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                children: [
-                  const Spacer(),
-                  if (participant != null) callAvatar(participant, radius: 54),
-                  const SizedBox(height: 18),
-                  Text(
-                    participant?.name ?? 'Audio call',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 24,
-                      fontWeight: FontWeight.w600,
+        return CallScreenScaffold(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              children: [
+                const SizedBox(height: 32),
+                Text(
+                  'Audio call',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: AppColors.primaryColor,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const Spacer(),
+                if (participant != null) callAvatar(participant, radius: 58),
+                const SizedBox(height: 20),
+                Text(
+                  participant?.name ?? 'Audio call',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                CallStatusText(
+                  text: vm.callState == CallState.reconnecting
+                      ? 'Reconnecting...'
+                      : vm.callState == CallState.connecting
+                      ? 'Connecting...'
+                      : formatCallDuration(vm.callDuration),
+                ),
+                if (vm.errorMessage != null) ...[
+                  const SizedBox(height: 16),
+                  CallStatusText(text: vm.errorMessage!, isError: true),
+                ],
+                const Spacer(),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    CallCircleButton(
+                      icon: vm.isMuted ? Icons.mic_off : Icons.mic,
+                      label: vm.isMuted ? 'Muted' : 'Mute',
+                      tooltip: vm.isMuted
+                          ? 'Unmute microphone'
+                          : 'Mute microphone',
+                      backgroundColor: vm.isMuted
+                          ? AppColors.primaryColor
+                          : Colors.grey.shade100,
+                      iconColor: vm.isMuted
+                          ? Colors.white
+                          : AppColors.primaryColor,
+                      onPressed: vm.toggleMute,
                     ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    vm.callState == CallState.reconnecting
-                        ? 'Reconnecting...'
-                        : vm.callState == CallState.connecting
-                        ? 'Connecting...'
-                        : formatCallDuration(vm.callDuration),
-                    style: const TextStyle(color: Colors.white70, fontSize: 16),
-                  ),
-                  if (vm.errorMessage != null) ...[
-                    const SizedBox(height: 16),
-                    Text(
-                      vm.errorMessage!,
-                      style: const TextStyle(color: Colors.redAccent),
-                      textAlign: TextAlign.center,
+                    CallCircleButton(
+                      icon: vm.isSpeakerOn ? Icons.volume_up : Icons.hearing,
+                      label: 'Speaker',
+                      tooltip: 'Toggle speaker',
+                      backgroundColor: vm.isSpeakerOn
+                          ? AppColors.primaryColor
+                          : Colors.grey.shade100,
+                      iconColor: vm.isSpeakerOn
+                          ? Colors.white
+                          : AppColors.primaryColor,
+                      onPressed: vm.toggleSpeaker,
+                    ),
+                    CallCircleButton(
+                      icon: Icons.call_end,
+                      label: 'End',
+                      tooltip: 'End call',
+                      backgroundColor: Colors.red,
+                      iconColor: Colors.white,
+                      onPressed: vm.isConnecting ? null : () => vm.endCall(),
                     ),
                   ],
-                  const Spacer(),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      CallCircleButton(
-                        icon: vm.isMuted ? Icons.mic_off : Icons.mic,
-                        onPressed: vm.toggleMute,
-                      ),
-                      CallCircleButton(
-                        icon: vm.isSpeakerOn ? Icons.volume_up : Icons.hearing,
-                        onPressed: vm.toggleSpeaker,
-                      ),
-                      CallCircleButton(
-                        icon: Icons.call_end,
-                        backgroundColor: Colors.red,
-                        onPressed: vm.isConnecting ? null : () => vm.endCall(),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+                ),
+                const SizedBox(height: 28),
+              ],
             ),
           ),
         );

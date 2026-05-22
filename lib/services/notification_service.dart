@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -9,6 +10,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api_service.dart';
 
+class IncomingCallNotificationTap {
+  final Map<String, dynamic> data;
+  final String? actionId;
+
+  const IncomingCallNotificationTap({required this.data, this.actionId});
+}
+
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
@@ -17,10 +25,12 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
 class NotificationService {
   static const String _shownPushMessageIdsKey = 'shown_push_message_ids';
-  static const String _messageChannelId = 'm2m_messages_custom_v3';
+  static const String _messageChannelId = 'm2m_messages_default_v1';
   static const String _messageChannelName = 'M2M Messages';
-  static const RawResourceAndroidNotificationSound _messageSound =
-      RawResourceAndroidNotificationSound('notification');
+  static const String _incomingCallChannelId = 'm2m_incoming_calls_v1';
+  static const String _incomingCallChannelName = 'Incoming calls';
+  static const String acceptCallActionId = 'accept_call';
+  static const String rejectCallActionId = 'reject_call';
 
   static final NotificationService _instance = NotificationService._internal();
 
@@ -32,11 +42,20 @@ class NotificationService {
   final FlutterLocalNotificationsPlugin _local =
       FlutterLocalNotificationsPlugin();
   final AudioPlayer _soundPlayer = AudioPlayer();
+  final StreamController<IncomingCallNotificationTap>
+  _incomingCallTapController =
+      StreamController<IncomingCallNotificationTap>.broadcast();
   final Set<String> _shownMessageIds = <String>{};
   final Set<String> _soundedMessageIds = <String>{};
+  final Set<String> _shownIncomingCallIds = <String>{};
+  String? _activeChatId;
+  String? _activeChatParticipantId;
 
   static GlobalKey<NavigatorState>? navigatorKey;
   bool _localNotificationsReady = false;
+
+  Stream<IncomingCallNotificationTap> get incomingCallTapStream =>
+      _incomingCallTapController.stream;
 
   static Future<void> getTokenAndSave() {
     return _instance._saveToken();
@@ -52,6 +71,26 @@ class NotificationService {
 
   static Future<void> playMessageSound({String? messageId}) {
     return _instance._playMessageSound(messageId: messageId);
+  }
+
+  static void setActiveChatId(String? chatId) {
+    _instance._activeChatId = chatId;
+  }
+
+  static void setActiveChatParticipantId(String? participantId) {
+    _instance._activeChatParticipantId = participantId;
+  }
+
+  static bool isActiveChat(String? chatId) {
+    return chatId != null &&
+        chatId.isNotEmpty &&
+        _instance._activeChatId == chatId;
+  }
+
+  static bool isActiveChatParticipant(String? participantId) {
+    return participantId != null &&
+        participantId.isNotEmpty &&
+        _instance._activeChatParticipantId == participantId;
   }
 
   Future<void> initialize({required GlobalKey<NavigatorState> navKey}) async {
@@ -104,11 +143,31 @@ class NotificationService {
   }
 
   Future<void> handleForegroundRemoteMessage(RemoteMessage message) async {
+    if (_isIncomingCallPayload(message.data)) {
+      await showIncomingCallNotification(message.data);
+      _incomingCallTapController.add(
+        IncomingCallNotificationTap(data: message.data),
+      );
+      return;
+    }
     await markRemoteMessageDelivered(message);
     final messageId =
         message.data['message_id']?.toString() ??
         message.data['id']?.toString();
-    await _playMessageSound(messageId: messageId);
+    if (_isMessageForActiveChat(message.data)) {
+      await _playMessageSound(messageId: messageId);
+      return;
+    }
+
+    final notification = message.notification;
+    await _showNotification(
+      title: notification?.title ?? message.data['title'] ?? 'New message',
+      body:
+          notification?.body ??
+          message.data['body'] ??
+          'You have a new message',
+      data: message.data,
+    );
   }
 
   Future<void> _setupLocalNotifications() async {
@@ -134,7 +193,7 @@ class NotificationService {
         if (payload == null || payload.isEmpty) return;
         try {
           final data = Map<String, dynamic>.from(jsonDecode(payload));
-          _handleNotificationTap(data);
+          _handleNotificationTap(data, actionId: details.actionId);
         } catch (e) {
           debugPrint('Notification payload decode error: $e');
         }
@@ -146,7 +205,6 @@ class NotificationService {
       _messageChannelName,
       description: 'New message notifications',
       importance: Importance.high,
-      sound: _messageSound,
       playSound: true,
       enableVibration: true,
       audioAttributesUsage: AudioAttributesUsage.notificationEvent,
@@ -158,7 +216,39 @@ class NotificationService {
         >()
         ?.createNotificationChannel(channel);
 
+    const callChannel = AndroidNotificationChannel(
+      _incomingCallChannelId,
+      _incomingCallChannelName,
+      description: 'Full-screen incoming call alerts',
+      importance: Importance.max,
+      playSound: true,
+      enableVibration: true,
+      audioAttributesUsage: AudioAttributesUsage.notificationRingtone,
+    );
+
+    await _local
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >()
+        ?.createNotificationChannel(callChannel);
+
     _localNotificationsReady = true;
+
+    final launchDetails = await _local.getNotificationAppLaunchDetails();
+    final response = launchDetails?.notificationResponse;
+    final payload = response?.payload;
+    if (launchDetails?.didNotificationLaunchApp == true &&
+        payload != null &&
+        payload.isNotEmpty) {
+      try {
+        final data = Map<String, dynamic>.from(jsonDecode(payload));
+        Future.delayed(const Duration(milliseconds: 500), () {
+          _handleNotificationTap(data, actionId: response?.actionId);
+        });
+      } catch (e) {
+        debugPrint('Launch notification payload decode error: $e');
+      }
+    }
   }
 
   Future<void> showRemoteMessageNotification(RemoteMessage message) async {
@@ -166,6 +256,11 @@ class NotificationService {
     final data = message.data;
     final title = notification?.title ?? data['title'] ?? 'New message';
     final body = notification?.body ?? data['body'] ?? 'You have a new message';
+
+    if (_isIncomingCallPayload(data)) {
+      await showIncomingCallNotification(data);
+      return;
+    }
 
     await _showNotification(title: title, body: body, data: data);
     await markRemoteMessageDelivered(message);
@@ -215,7 +310,6 @@ class NotificationService {
           priority: Priority.high,
           icon: '@mipmap/ic_launcher',
           color: const Color(0xFF6B00D7),
-          sound: _messageSound,
           playSound: true,
           audioAttributesUsage: AudioAttributesUsage.notificationEvent,
           category: AndroidNotificationCategory.message,
@@ -232,10 +326,89 @@ class NotificationService {
     );
   }
 
+  Future<void> showIncomingCallNotification(Map<String, dynamic> data) async {
+    await _setupLocalNotifications();
+    final callId = data['call_id']?.toString();
+    if (callId == null || callId.isEmpty) return;
+    if (!_shownIncomingCallIds.add(callId)) return;
+    Future.delayed(const Duration(minutes: 2), () {
+      _shownIncomingCallIds.remove(callId);
+    });
+
+    final callerName = data['caller_name']?.toString();
+    final callType = data['call_type']?.toString() == 'video'
+        ? 'video'
+        : 'audio';
+    final title = callerName == null || callerName.isEmpty
+        ? 'Incoming call'
+        : callerName;
+    final body = 'Incoming $callType call';
+
+    await _local.show(
+      _notificationIdForIncomingCall(callId),
+      title,
+      body,
+      NotificationDetails(
+        android: AndroidNotificationDetails(
+          _incomingCallChannelId,
+          _incomingCallChannelName,
+          importance: Importance.max,
+          priority: Priority.max,
+          icon: '@mipmap/ic_launcher',
+          color: const Color(0xFF6B00D7),
+          playSound: true,
+          audioAttributesUsage: AudioAttributesUsage.notificationRingtone,
+          category: AndroidNotificationCategory.call,
+          visibility: NotificationVisibility.public,
+          fullScreenIntent: true,
+          ongoing: true,
+          autoCancel: false,
+          timeoutAfter: 60000,
+          actions: const [
+            AndroidNotificationAction(
+              rejectCallActionId,
+              'Reject',
+              showsUserInterface: true,
+              semanticAction: SemanticAction.delete,
+              cancelNotification: true,
+            ),
+            AndroidNotificationAction(
+              acceptCallActionId,
+              'Accept',
+              showsUserInterface: true,
+              semanticAction: SemanticAction.call,
+              cancelNotification: true,
+            ),
+          ],
+          styleInformation: BigTextStyleInformation(body),
+        ),
+        iOS: const DarwinNotificationDetails(
+          presentAlert: true,
+          presentBadge: true,
+          presentSound: true,
+          interruptionLevel: InterruptionLevel.active,
+        ),
+      ),
+      payload: jsonEncode(data),
+    );
+  }
+
+  Future<void> dismissIncomingCall(String? callId) async {
+    if (callId == null || callId.isEmpty) return;
+    _shownIncomingCallIds.remove(callId);
+    await _local.cancel(_notificationIdForIncomingCall(callId));
+  }
+
   int _notificationIdForMessage(String? messageId) {
     final parsed = int.tryParse(messageId ?? '');
     if (parsed != null) return parsed & 0x7fffffff;
     return DateTime.now().millisecondsSinceEpoch & 0x7fffffff;
+  }
+
+  int _notificationIdForIncomingCall(String callId) {
+    final parsed = int.tryParse(callId);
+    if (parsed != null) return (parsed & 0x3fffffff) + 0x40000000;
+    return callId.hashCode & 0x7fffffff;
   }
 
   Future<bool> _wasPushMessageAlreadyShown(String messageId) async {
@@ -272,7 +445,26 @@ class NotificationService {
     }
   }
 
-  void _handleNotificationTap(Map<String, dynamic> data) {
+  bool _isIncomingCallPayload(Map<String, dynamic> data) {
+    return data['type']?.toString() == 'incoming_call' &&
+        data['call_id'] != null;
+  }
+
+  bool _isMessageForActiveChat(Map<String, dynamic> data) {
+    final chatId = data['chat_id']?.toString() ?? data['chat']?.toString();
+    final senderId =
+        data['sender_id']?.toString() ?? data['sender']?.toString();
+    return isActiveChat(chatId) || isActiveChatParticipant(senderId);
+  }
+
+  void _handleNotificationTap(Map<String, dynamic> data, {String? actionId}) {
+    if (_isIncomingCallPayload(data)) {
+      _incomingCallTapController.add(
+        IncomingCallNotificationTap(data: data, actionId: actionId),
+      );
+      return;
+    }
+
     final chatId = data['chat_id']?.toString();
     final senderId = data['sender_id']?.toString();
     final navState = navigatorKey?.currentState;

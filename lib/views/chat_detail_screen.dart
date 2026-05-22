@@ -22,6 +22,7 @@ import 'package:video_player/video_player.dart';
 import '../models/chat.dart';
 import '../models/message.dart';
 import '../services/api_service.dart';
+import '../services/notification_service.dart';
 import '../services/permission_service.dart';
 import '../services/websocket_service.dart';
 import '../utils/constants.dart';
@@ -106,6 +107,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     _currentChatId = widget.chat.id;
     _chatViewModel.setActiveChat(_currentChatId);
     SocketService().setActiveChatId(_currentChatId);
+    NotificationService.setActiveChatId(_currentChatId);
+    NotificationService.setActiveChatParticipantId(widget.chat.receiverId);
     _loadDownloadedFiles();
     _loadMessages();
     _listenToSocket();
@@ -199,6 +202,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     _recordingCurrentOffset.dispose();
     if (_chatViewModel.activeChatId == _currentChatId) {
       _chatViewModel.setActiveChat(null);
+    }
+    if (NotificationService.isActiveChat(_currentChatId)) {
+      NotificationService.setActiveChatId(null);
+      NotificationService.setActiveChatParticipantId(null);
     }
     SocketService().setActiveChatId(null);
     _audioRecorder.dispose();
