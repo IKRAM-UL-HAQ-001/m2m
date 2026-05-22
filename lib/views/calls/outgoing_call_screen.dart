@@ -47,7 +47,7 @@ class _OutgoingCallScreenState extends State<OutgoingCallScreen> {
 
     if (!_closing && _isTerminal(vm.callState)) {
       _closing = true;
-      Future.delayed(const Duration(milliseconds: 1200), () {
+      Future.delayed(const Duration(milliseconds: 250), () {
         if (mounted && Navigator.canPop(context)) {
           Navigator.pop(context);
         }

@@ -31,7 +31,7 @@ class _ActiveAudioCallScreenState extends State<ActiveAudioCallScreen> {
     final vm = context.read<CallViewModel>();
     if (!_closed && _isTerminal(vm.callState) && mounted) {
       _closed = true;
-      Future.delayed(const Duration(milliseconds: 900), () {
+      Future.delayed(const Duration(milliseconds: 250), () {
         if (mounted && Navigator.canPop(context)) {
           Navigator.pop(context);
         }

@@ -111,6 +111,9 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _lifecycleState = state;
+    if (state == AppLifecycleState.resumed) {
+      context.read<CallViewModel>().handleAppResumed();
+    }
   }
 
   void _handleCallEvent(CallEvent event) {

@@ -64,7 +64,7 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
       _closing = true;
       _timeoutTimer?.cancel();
       NotificationService().dismissIncomingCall(call.id);
-      Future.delayed(const Duration(milliseconds: 500), () {
+      Future.delayed(const Duration(milliseconds: 250), () {
         if (mounted && Navigator.canPop(context)) {
           Navigator.pop(context);
         }

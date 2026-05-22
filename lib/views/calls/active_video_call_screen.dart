@@ -40,7 +40,7 @@ class _ActiveVideoCallScreenState extends State<ActiveVideoCallScreen> {
     }.contains(vm.callState);
     if (!_closed && terminal && mounted) {
       _closed = true;
-      Future.delayed(const Duration(milliseconds: 900), () {
+      Future.delayed(const Duration(milliseconds: 250), () {
         if (mounted && Navigator.canPop(context)) {
           Navigator.pop(context);
         }

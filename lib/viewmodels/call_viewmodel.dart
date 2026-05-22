@@ -8,6 +8,7 @@ import '../models/call_participant.dart';
 import '../models/call_session.dart';
 import '../services/api_service.dart';
 import '../services/livekit_call_service.dart';
+import '../services/notification_service.dart';
 
 enum CallState {
   idle,
@@ -28,6 +29,8 @@ class CallViewModel extends ChangeNotifier {
   static const int _maxReconnectAttempts = 3;
   static const Duration _reconnectDelay = Duration(seconds: 3);
   static const Duration _reconnectGracePeriod = Duration(seconds: 90);
+  static const Duration _callActionTimeout = Duration(seconds: 8);
+  static const Duration _terminalStateClearDelay = Duration(milliseconds: 1400);
 
   final ApiService _apiService = ApiService();
   final LiveKitCallService _liveKitService = LiveKitCallService();
@@ -51,6 +54,7 @@ class CallViewModel extends ChangeNotifier {
   int _reconnectAttempts = 0;
   bool _manualDisconnectRequested = false;
   bool _recoveringConnection = false;
+  Timer? _terminalStateClearTimer;
 
   CallViewModel() {
     _liveKitService.addListener(_handleMediaStateChanged);
@@ -99,6 +103,7 @@ class CallViewModel extends ChangeNotifier {
     required int receiverId,
     required String callType,
   }) async {
+    resetCurrentCallIfTerminal();
     if (!canStartCall) {
       _setError('You are already in a call.');
       _setState(CallState.busy);
@@ -156,13 +161,19 @@ class CallViewModel extends ChangeNotifier {
   Future<CallSession?> acceptCall([int? callId]) async {
     final id = callId ?? int.tryParse(_currentCall?.id ?? '');
     if (id == null) return null;
+    debugPrint('Call accept tapped callId=$id');
+    NotificationService().dismissIncomingCall(id.toString());
     _isConnecting = true;
     _setState(CallState.connecting);
     try {
-      final call = await _apiService.acceptCall(id);
+      debugPrint('Backend accept started callId=$id');
+      final call = await _apiService.acceptCall(id).timeout(_callActionTimeout);
+      debugPrint('Backend accept completed callId=$id');
       _currentCall = call;
       _errorMessage = null;
+      debugPrint('LiveKit join started callId=$id');
       await joinCallAndConnect(call.id);
+      debugPrint('LiveKit join completed callId=$id');
       return _currentState == CallState.failed ? null : call;
     } on ApiException catch (error) {
       _isConnecting = false;
@@ -180,25 +191,58 @@ class CallViewModel extends ChangeNotifier {
   Future<void> rejectCall([int? callId]) async {
     final id = callId ?? int.tryParse(_currentCall?.id ?? '');
     if (id == null) return;
+    debugPrint('Call reject tapped callId=$id');
+    NotificationService().dismissIncomingCall(id.toString());
     _manualDisconnectRequested = true;
-    await _disconnectLiveKit();
-    await _finishWithApi(() => _apiService.rejectCall(id), CallState.rejected);
+    _finishCall(CallState.rejected);
+    unawaited(_disconnectLiveKit());
+    unawaited(
+      _finishWithApi(
+        () => _apiService.rejectCall(id).timeout(_callActionTimeout),
+        CallState.rejected,
+        optimistic: true,
+        actionName: 'reject',
+        callId: id,
+      ),
+    );
   }
 
   Future<void> cancelCall([int? callId]) async {
     final id = callId ?? int.tryParse(_currentCall?.id ?? '');
     if (id == null) return;
+    debugPrint('Call cancel tapped callId=$id');
+    NotificationService().dismissIncomingCall(id.toString());
     _manualDisconnectRequested = true;
-    await _disconnectLiveKit();
-    await _finishWithApi(() => _apiService.cancelCall(id), CallState.ended);
+    _finishCall(CallState.ended);
+    unawaited(_disconnectLiveKit());
+    unawaited(
+      _finishWithApi(
+        () => _apiService.cancelCall(id).timeout(_callActionTimeout),
+        CallState.ended,
+        optimistic: true,
+        actionName: 'cancel',
+        callId: id,
+      ),
+    );
   }
 
   Future<void> endCall([int? callId]) async {
     final id = callId ?? int.tryParse(_currentCall?.id ?? '');
     if (id == null) return;
+    debugPrint('Call end tapped callId=$id');
+    NotificationService().dismissIncomingCall(id.toString());
     _manualDisconnectRequested = true;
-    await _disconnectLiveKit();
-    await _finishWithApi(() => _apiService.endCall(id), CallState.ended);
+    _finishCall(CallState.ended);
+    unawaited(_disconnectLiveKit());
+    unawaited(
+      _finishWithApi(
+        () => _apiService.endCall(id).timeout(_callActionTimeout),
+        CallState.ended,
+        optimistic: true,
+        actionName: 'end',
+        callId: id,
+      ),
+    );
   }
 
   Future<void> joinCallAndConnect([String? callId]) async {
@@ -237,6 +281,7 @@ class CallViewModel extends ChangeNotifier {
 
   void handleCallEvent(CallEvent event) {
     final call = event.call;
+    debugPrint('Call event received type=${event.type} callId=${call.id}');
     switch (event.type) {
       case 'call_invite':
         if (canStartCall || _currentCall?.id == call.id) {
@@ -350,6 +395,8 @@ class CallViewModel extends ChangeNotifier {
   }
 
   void resetCall() {
+    _terminalStateClearTimer?.cancel();
+    _terminalStateClearTimer = null;
     _durationTimer?.cancel();
     _durationTimer = null;
     _currentState = CallState.idle;
@@ -373,23 +420,52 @@ class CallViewModel extends ChangeNotifier {
 
   Future<void> _finishWithApi(
     Future<CallSession> Function() action,
-    CallState fallbackState,
-  ) async {
-    _isConnecting = true;
-    notifyListeners();
+    CallState fallbackState, {
+    bool optimistic = false,
+    String actionName = 'call action',
+    int? callId,
+  }) async {
+    if (!optimistic) {
+      _isConnecting = true;
+      notifyListeners();
+    }
     try {
+      if (callId != null) {
+        debugPrint('Backend $actionName started callId=$callId');
+      }
       final call = await action();
-      _currentCall = call;
+      debugPrint('Backend $actionName completed callId=${call.id}');
+      if (optimistic && _currentCall == null) {
+        _errorMessage = null;
+        return;
+      }
+      if (_currentCall == null || _currentCall!.id == call.id) {
+        _currentCall = call;
+      }
       _errorMessage = null;
-      _finishCall(
-        _stateFromBackendStatus(call.status, fallback: fallbackState),
+      final nextState = _stateFromBackendStatus(
+        call.status,
+        fallback: fallbackState,
       );
+      if (!optimistic || !_isTerminalState(_currentState)) {
+        _finishCall(nextState);
+      }
     } on ApiException catch (error) {
+      if (optimistic && _currentCall == null) return;
       _errorMessage = _messageForError(error);
-      _finishCall(_stateForErrorCode(error.code));
+      if (!optimistic) {
+        _finishCall(_stateForErrorCode(error.code));
+      } else {
+        notifyListeners();
+      }
     } catch (_) {
-      _errorMessage = 'Network error. Please try again.';
-      _finishCall(CallState.failed);
+      if (optimistic && _currentCall == null) return;
+      _errorMessage = 'Network timeout. Please check call status.';
+      if (!optimistic) {
+        _finishCall(CallState.failed);
+      } else {
+        notifyListeners();
+      }
     } finally {
       _isConnecting = false;
       notifyListeners();
@@ -424,7 +500,9 @@ class CallViewModel extends ChangeNotifier {
         ? Duration(seconds: _currentCall!.durationSeconds)
         : _callDuration;
     if (_isTerminalState(state)) {
+      NotificationService().dismissIncomingCall(_currentCall?.id);
       unawaited(_disconnectLiveKit());
+      _scheduleTerminalStateClear();
     }
     _setState(state);
   }
@@ -434,7 +512,9 @@ class CallViewModel extends ChangeNotifier {
     _errorMessage = null;
     _setState(CallState.connecting);
     try {
+      debugPrint('LiveKit credentials request started callId=$callId');
       final credentials = await _apiService.joinCall(int.parse(callId));
+      debugPrint('LiveKit connect started callId=$callId');
       await _liveKitService.connect(
         serverUrl: credentials.serverUrl,
         token: credentials.token,
@@ -530,6 +610,39 @@ class CallViewModel extends ChangeNotifier {
       _failReconnect('Call connection lost.');
     });
     unawaited(_recoverLiveKitConnection(reason));
+  }
+
+  Future<void> handleAppResumed() async {
+    final call = _currentCall;
+    if (call == null) return;
+    if (_isTerminalState(_currentState)) {
+      resetCurrentCallIfTerminal();
+      return;
+    }
+
+    final callId = int.tryParse(call.id);
+    if (callId == null) return;
+    try {
+      final latestCall = await _apiService.getCallDetail(callId);
+      _currentCall = latestCall;
+      final latestState = _stateFromBackendStatus(
+        latestCall.status,
+        fallback: _currentState,
+      );
+      if (_isTerminalState(latestState)) {
+        _finishCall(latestState);
+        return;
+      }
+      if ((latestCall.status == 'accepted' || latestCall.status == 'active') &&
+          !_liveKitService.isConnected &&
+          !_recoveringConnection) {
+        _scheduleReconnectRecovery('app_resumed');
+      } else {
+        notifyListeners();
+      }
+    } catch (error) {
+      debugPrint('Call resume check failed callId=$callId error=$error');
+    }
   }
 
   Future<void> _recoverLiveKitConnection(String reason) async {
@@ -685,10 +798,30 @@ class CallViewModel extends ChangeNotifier {
         state == CallState.failed;
   }
 
+  void clearEndedCallState() {
+    resetCurrentCallIfTerminal();
+  }
+
+  void resetCurrentCallIfTerminal() {
+    if (_isTerminalState(_currentState)) {
+      resetCall();
+    }
+  }
+
+  void _scheduleTerminalStateClear() {
+    _terminalStateClearTimer?.cancel();
+    _terminalStateClearTimer = Timer(_terminalStateClearDelay, () {
+      if (_isTerminalState(_currentState)) {
+        resetCall();
+      }
+    });
+  }
+
   @override
   void dispose() {
     _durationTimer?.cancel();
     _reconnectGraceTimer?.cancel();
+    _terminalStateClearTimer?.cancel();
     _liveKitDisconnectSubscription?.cancel();
     _liveKitService.removeListener(_handleMediaStateChanged);
     _liveKitService.dispose();

@@ -1,9 +1,11 @@
 import 'dart:convert';
 import 'dart:async';
+import 'dart:io';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -27,10 +29,13 @@ class NotificationService {
   static const String _shownPushMessageIdsKey = 'shown_push_message_ids';
   static const String _messageChannelId = 'm2m_messages_default_v1';
   static const String _messageChannelName = 'M2M Messages';
-  static const String _incomingCallChannelId = 'm2m_incoming_calls_v1';
+  static const String _incomingCallChannelId = 'm2m_incoming_calls_ringtone_v2';
   static const String _incomingCallChannelName = 'Incoming calls';
   static const String acceptCallActionId = 'accept_call';
   static const String rejectCallActionId = 'reject_call';
+  static const MethodChannel _ringtoneChannel = MethodChannel(
+    'com.danish.m2m/ringtone',
+  );
 
   static final NotificationService _instance = NotificationService._internal();
 
@@ -222,6 +227,7 @@ class NotificationService {
       description: 'Full-screen incoming call alerts',
       importance: Importance.max,
       playSound: true,
+      sound: UriAndroidNotificationSound('content://settings/system/ringtone'),
       enableVibration: true,
       audioAttributesUsage: AudioAttributesUsage.notificationRingtone,
     );
@@ -344,6 +350,8 @@ class NotificationService {
         : callerName;
     final body = 'Incoming $callType call';
 
+    await startRingtone();
+
     await _local.show(
       _notificationIdForIncomingCall(callId),
       title,
@@ -357,6 +365,9 @@ class NotificationService {
           icon: '@mipmap/ic_launcher',
           color: const Color(0xFF6B00D7),
           playSound: true,
+          sound: const UriAndroidNotificationSound(
+            'content://settings/system/ringtone',
+          ),
           audioAttributesUsage: AudioAttributesUsage.notificationRingtone,
           category: AndroidNotificationCategory.call,
           visibility: NotificationVisibility.public,
@@ -394,6 +405,7 @@ class NotificationService {
   }
 
   Future<void> dismissIncomingCall(String? callId) async {
+    await stopRingtone();
     if (callId == null || callId.isEmpty) return;
     _shownIncomingCallIds.remove(callId);
     await _local.cancel(_notificationIdForIncomingCall(callId));
@@ -459,6 +471,7 @@ class NotificationService {
 
   void _handleNotificationTap(Map<String, dynamic> data, {String? actionId}) {
     if (_isIncomingCallPayload(data)) {
+      stopRingtone();
       _incomingCallTapController.add(
         IncomingCallNotificationTap(data: data, actionId: actionId),
       );
@@ -493,6 +506,24 @@ class NotificationService {
       await ApiService().updateFcmToken(token);
     } catch (e) {
       debugPrint('FCM token upload error: $e');
+    }
+  }
+
+  Future<void> startRingtone() async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _ringtoneChannel.invokeMethod('startIncomingCallRingtone');
+    } catch (e) {
+      debugPrint('Error starting native ringtone: $e');
+    }
+  }
+
+  Future<void> stopRingtone() async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _ringtoneChannel.invokeMethod('stopIncomingCallRingtone');
+    } catch (e) {
+      debugPrint('Error stopping native ringtone: $e');
     }
   }
 }
