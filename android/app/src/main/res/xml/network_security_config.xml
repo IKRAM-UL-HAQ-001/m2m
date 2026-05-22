@@ -6,7 +6,7 @@
         </trust-anchors>
     </base-config>
     <domain-config cleartextTrafficPermitted="true">
-        <domain>54.85.57.11</domain>
+        <domain includeSubdomains="false">54.85.57.11</domain>
     </domain-config>
     <debug-overrides>
         <trust-anchors>

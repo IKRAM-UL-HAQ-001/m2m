@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:livekit_client/livekit_client.dart' as lk;
 import 'package:permission_handler/permission_handler.dart';
@@ -14,11 +16,15 @@ class CallMediaException implements Exception {
 class LiveKitCallService extends ChangeNotifier {
   lk.Room? _room;
   lk.EventsListener<lk.RoomEvent>? _listener;
+  final StreamController<lk.RoomDisconnectedEvent> _disconnectController =
+      StreamController<lk.RoomDisconnectedEvent>.broadcast();
   bool _isConnecting = false;
   bool _isCameraFront = true;
   String? _errorMessage;
 
   lk.Room? get room => _room;
+  Stream<lk.RoomDisconnectedEvent> get disconnectStream =>
+      _disconnectController.stream;
   bool get isConnecting => _isConnecting;
   String? get errorMessage => _errorMessage;
   lk.ConnectionState get connectionState =>
@@ -78,7 +84,10 @@ class LiveKitCallService extends ChangeNotifier {
     _listener = room.createListener()
       ..on<lk.RoomReconnectingEvent>((_) => notifyListeners())
       ..on<lk.RoomReconnectedEvent>((_) => notifyListeners())
-      ..on<lk.RoomDisconnectedEvent>((_) => notifyListeners())
+      ..on<lk.RoomDisconnectedEvent>((event) {
+        _disconnectController.add(event);
+        notifyListeners();
+      })
       ..on<lk.ParticipantConnectedEvent>((_) => notifyListeners())
       ..on<lk.ParticipantDisconnectedEvent>((_) => notifyListeners())
       ..on<lk.TrackSubscribedEvent>((_) => notifyListeners())
@@ -179,11 +188,12 @@ class LiveKitCallService extends ChangeNotifier {
   }
 
   String _messageForConnectError(Object error) {
+    debugPrint('LiveKit connect failed: $error');
     final message = error.toString();
     if (message.toLowerCase().contains('token')) {
       return 'Call token expired. Please try again.';
     }
-    return 'Could not connect to the call.';
+    return 'Could not connect to the call server.';
   }
 
   void _handleRoomChanged() {
@@ -193,6 +203,7 @@ class LiveKitCallService extends ChangeNotifier {
   @override
   void dispose() {
     _listener?.dispose();
+    _disconnectController.close();
     _room?.removeListener(_handleRoomChanged);
     _room?.disconnect();
     _room?.dispose();
