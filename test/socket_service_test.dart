@@ -195,4 +195,50 @@ void main() {
     await subscription.cancel();
     service.dispose();
   });
+
+  test('SocketService emits call events', () async {
+    final channel = FakeWebSocketChannel();
+    final service = SocketService.test(
+      channelFactory: (_) => channel,
+      ticketProvider: () async => {'ticket': 'fake-ticket'},
+    );
+
+    await service.connect();
+
+    final callEventFuture = service.callEventStream.first;
+
+    channel.addIncoming(
+      jsonEncode({
+        'event': 'call_invite',
+        'type': 'call_invite',
+        'payload': {
+          'type': 'call_invite',
+          'call': {
+            'id': 123,
+            'call_type': 'audio',
+            'status': 'ringing',
+            'room_name': 'call_123',
+            'caller': {'id': 1, 'name': 'Caller'},
+            'receiver': {'id': 2, 'name': 'Receiver'},
+            'started_at': '2026-05-21T20:15:00Z',
+            'accepted_at': null,
+            'ended_at': null,
+            'duration_seconds': 0,
+          },
+        },
+      }),
+    );
+
+    final callEvent = await callEventFuture;
+
+    expect(callEvent.type, 'call_invite');
+    expect(callEvent.call.id, '123');
+    expect(callEvent.call.callType.value, 'audio');
+    expect(callEvent.call.status, 'ringing');
+    expect(callEvent.call.roomName, 'call_123');
+    expect(callEvent.call.caller.name, 'Caller');
+    expect(callEvent.call.receiver.name, 'Receiver');
+
+    service.dispose();
+  });
 }

@@ -8,6 +8,8 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/chat.dart';
+import '../models/call_join_credentials.dart';
+import '../models/call_session.dart';
 import '../models/contact_user.dart';
 import '../models/message.dart';
 import '../models/shared_media.dart';
@@ -18,11 +20,14 @@ import 'dio_client.dart';
 class ApiException implements Exception {
   final int statusCode;
   final String message;
+  final String? code;
 
-  ApiException(this.statusCode, this.message);
+  ApiException(this.statusCode, this.message, {this.code});
 
   @override
-  String toString() => 'ApiException($statusCode): $message';
+  String toString() => code == null
+      ? 'ApiException($statusCode): $message'
+      : 'ApiException($statusCode, $code): $message';
 }
 
 class ContactDiscoveryResult {
@@ -90,6 +95,31 @@ class ApiService {
       message = data.toString();
     }
     throw ApiException(response.statusCode ?? 0, message);
+  }
+
+  Never _throwCallApiError(DioException error) {
+    final statusCode = error.response?.statusCode ?? 0;
+    final data = error.response?.data;
+    var message = 'Call request failed';
+    String? code;
+
+    if (data is Map) {
+      final map = Map<String, dynamic>.from(data);
+      message = (map['detail'] ?? map['error'] ?? map['message'] ?? message)
+          .toString();
+      code = map['code']?.toString();
+    } else if (data != null) {
+      message = data.toString();
+    }
+
+    code ??= switch (statusCode) {
+      400 => 'validation_error',
+      403 => 'permission_denied',
+      404 => 'not_found',
+      _ => null,
+    };
+
+    throw ApiException(statusCode, message, code: code);
   }
 
   Future<bool> requestOtp(String phoneNumber, String countryCode) async {
@@ -350,6 +380,77 @@ class ApiService {
         .toList();
   }
 
+  Future<CallSession> startCall({
+    required int receiverId,
+    required String callType,
+  }) async {
+    try {
+      final response = await _dio.post(
+        '/api/calls/start/',
+        data: {'receiver_id': receiverId, 'call_type': callType},
+      );
+      return CallSession.fromJson(_asMap(response.data));
+    } on DioException catch (error) {
+      _throwCallApiError(error);
+    }
+  }
+
+  Future<CallSession> acceptCall(int callId) {
+    return _callAction(callId, 'accept');
+  }
+
+  Future<CallSession> rejectCall(int callId) {
+    return _callAction(callId, 'reject');
+  }
+
+  Future<CallSession> cancelCall(int callId) {
+    return _callAction(callId, 'cancel');
+  }
+
+  Future<CallSession> endCall(int callId) {
+    return _callAction(callId, 'end');
+  }
+
+  Future<CallSession> getCallDetail(int callId) async {
+    try {
+      final response = await _dio.get('/api/calls/$callId/');
+      return CallSession.fromJson(_asMap(response.data));
+    } on DioException catch (error) {
+      _throwCallApiError(error);
+    }
+  }
+
+  Future<List<CallSession>> getCallHistory() async {
+    try {
+      final response = await _dio.get('/api/calls/history/');
+      final data = _asMap(response.data);
+      final results = List<dynamic>.from(data['results'] ?? const []);
+      return results
+          .map((item) => CallSession.fromJson(Map<String, dynamic>.from(item)))
+          .toList();
+    } on DioException catch (error) {
+      _throwCallApiError(error);
+    }
+  }
+
+  Future<CallJoinCredentials> joinCall(int callId) async {
+    try {
+      final response = await _dio.post('/api/calls/$callId/join/', data: {});
+      return CallJoinCredentials.fromJson(_asMap(response.data));
+    } on DioException catch (error) {
+      _throwCallApiError(error);
+    }
+  }
+
+  Future<CallSession> _callAction(int callId, String action) async {
+    try {
+      final response = await _dio.post('/api/calls/$callId/$action/', data: {});
+      return CallSession.fromJson(_asMap(response.data));
+    } on DioException catch (error) {
+      _throwCallApiError(error);
+    }
+  }
+
   Future<Map<String, dynamic>> getStatusPrivacy() async {
     final response = await _dio.get('/api/status/privacy/');
     return _asMap(response.data);
@@ -511,10 +612,7 @@ class ApiService {
         .cast<int>()
         .toList();
     if (intIds.isEmpty) return;
-    await _dio.post(
-      '/api/messages/delivered/',
-      data: {'message_ids': intIds},
-    );
+    await _dio.post('/api/messages/delivered/', data: {'message_ids': intIds});
   }
 
   Future<void> markChatRead(String chatId) async {

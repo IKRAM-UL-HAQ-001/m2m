@@ -283,7 +283,7 @@ class _HomeScreenState extends State<HomeScreen>
             children: [
               ChatsListView(searchQuery: _activeSearchQuery),
               StatusTab(searchQuery: _activeSearchQuery),
-              CallsPlaceholderTab(searchQuery: _activeSearchQuery),
+              CallsTab(searchQuery: _activeSearchQuery),
             ],
           ),
         ),

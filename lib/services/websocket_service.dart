@@ -5,6 +5,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
+import '../models/call_event.dart';
 import '../models/message.dart';
 import 'api_service.dart';
 import 'dio_client.dart';
@@ -71,6 +72,8 @@ class SocketService extends ChangeNotifier {
       StreamController<Map<String, dynamic>>.broadcast();
   final StreamController<Map<String, dynamic>> _statusEventController =
       StreamController<Map<String, dynamic>>.broadcast();
+  final StreamController<CallEvent> _callEventController =
+      StreamController<CallEvent>.broadcast();
 
   Stream<Message> get messageStream => _messageController.stream;
   Stream<MessageStatusUpdate> get messageStatusStream =>
@@ -83,6 +86,7 @@ class SocketService extends ChangeNotifier {
   Stream<Map<String, dynamic>> get reactionStream => _reactionController.stream;
   Stream<Map<String, dynamic>> get statusEventStream =>
       _statusEventController.stream;
+  Stream<CallEvent> get callEventStream => _callEventController.stream;
 
   Future<void> connect() async {
     if (_connectionState != SocketConnectionState.disconnected) return;
@@ -167,6 +171,10 @@ class SocketService extends ChangeNotifier {
         );
         payload['event'] = event;
         _statusEventController.add(payload);
+        return;
+      }
+      if (_callEventNames.contains(event)) {
+        _callEventController.add(CallEvent.fromJson(rawData));
         return;
       }
       if (event != null && event != 'chat_message') {
@@ -289,8 +297,21 @@ class SocketService extends ChangeNotifier {
     _messageDeleteController.close();
     _reactionController.close();
     _statusEventController.close();
+    _callEventController.close();
     _channelSubscription?.cancel();
     _channel?.sink.close();
     super.dispose();
   }
 }
+
+const Set<String> _callEventNames = {
+  'call_invite',
+  'call_ringing',
+  'call_accepted',
+  'call_rejected',
+  'call_cancelled',
+  'call_ended',
+  'call_missed',
+  'call_busy',
+  'call_failed',
+};

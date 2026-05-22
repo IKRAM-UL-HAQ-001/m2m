@@ -5,9 +5,9 @@
 			<key>NSContactsUsageDescription</key>
 			<string>M2M needs your contacts to show which friends are on M2M.</string>
 			<key>NSCameraUsageDescription</key>
-			<string>M2M needs camera access to take photos and videos to share.</string>
+			<string>M2M needs camera access for video calls and media sharing.</string>
 			<key>NSMicrophoneUsageDescription</key>
-			<string>M2M needs microphone access to record voice messages.</string>
+			<string>M2M needs microphone access for calls and voice messages.</string>
 			<key>NSPhotoLibraryUsageDescription</key>
 			<string>M2M needs photo library access to share photos and videos.</string>
 			<key>NSPhotoLibraryAddUsageDescription</key>

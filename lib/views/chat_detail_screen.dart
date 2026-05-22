@@ -27,8 +27,10 @@ import '../services/websocket_service.dart';
 import '../utils/constants.dart';
 import '../utils/responsive.dart';
 import '../viewmodels/chat_viewmodel.dart';
+import '../viewmodels/call_viewmodel.dart';
 import '../widgets/forward_contact_picker_sheet.dart';
 import '../widgets/profile_quick_modal.dart';
+import 'calls/outgoing_call_screen.dart';
 
 class ChatDetailScreen extends StatefulWidget {
   final Chat chat;
@@ -59,7 +61,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   Duration _recordingDuration = Duration.zero;
   Timer? _recordingTimer;
   Offset _recordingStartPos = Offset.zero;
-  final ValueNotifier<Offset> _recordingCurrentOffset = ValueNotifier<Offset>(Offset.zero);
+  final ValueNotifier<Offset> _recordingCurrentOffset = ValueNotifier<Offset>(
+    Offset.zero,
+  );
   late AnimationController _pulseController;
   late AnimationController _blinkController;
   late Animation<double> _pulseAnimation;
@@ -1213,7 +1217,51 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
           ],
         ),
       ),
+      actions: [
+        IconButton(
+          tooltip: 'Audio call',
+          icon: const Icon(Icons.call, color: Colors.white),
+          onPressed: () => _startCall('audio'),
+        ),
+        IconButton(
+          tooltip: 'Video call',
+          icon: const Icon(Icons.videocam, color: Colors.white),
+          onPressed: () => _startCall('video'),
+        ),
+      ],
     );
+  }
+
+  Future<void> _startCall(String callType) async {
+    final receiverId = int.tryParse(widget.chat.receiverId);
+    if (receiverId == null) {
+      _showErrorSnackBar('Unable to start call for this contact');
+      return;
+    }
+
+    final callViewModel = context.read<CallViewModel>();
+    final call = await callViewModel.startCall(
+      receiverId: receiverId,
+      callType: callType,
+    );
+
+    if (!mounted) return;
+
+    if (call == null) {
+      _showErrorSnackBar(callViewModel.errorMessage ?? 'Unable to start call');
+      return;
+    }
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const OutgoingCallScreen()),
+    );
+  }
+
+  void _showErrorSnackBar(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   void _showProfileQuickModal() {
@@ -2220,7 +2268,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
         ),
       ),
     );
-    
+
     // Isolate from changing keyboard view insets to avoid unnecessary rebuilds during keyboard animation
     return MediaQuery(
       data: MediaQuery.of(context).copyWith(

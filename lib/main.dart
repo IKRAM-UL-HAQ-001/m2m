@@ -1,14 +1,19 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'models/call_event.dart';
 import 'models/chat.dart';
 import 'services/api_service.dart';
 import 'services/dio_client.dart';
+import 'services/websocket_service.dart';
 import 'viewmodels/chat_viewmodel.dart';
 import 'viewmodels/auth_viewmodel.dart';
 import 'viewmodels/call_viewmodel.dart';
 import 'viewmodels/status_viewmodel.dart';
 import 'views/chat_detail_screen.dart';
+import 'views/calls/incoming_call_screen.dart';
 import 'views/splash_screen.dart';
 
 import 'package:firebase_core/firebase_core.dart';
@@ -76,11 +81,63 @@ class MyApp extends StatefulWidget {
   State<MyApp> createState() => _MyAppState();
 }
 
-class _MyAppState extends State<MyApp> {
+class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
+  StreamSubscription? _callEventSubscription;
+  AppLifecycleState _lifecycleState = AppLifecycleState.resumed;
+  String? _presentedIncomingCallId;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     NotificationService().initialize(navKey: widget.navigatorKey);
+    _callEventSubscription = SocketService().callEventStream.listen(
+      _handleCallEvent,
+    );
+  }
+
+  @override
+  void dispose() {
+    _callEventSubscription?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _lifecycleState = state;
+  }
+
+  void _handleCallEvent(CallEvent event) {
+    final viewModel = context.read<CallViewModel>();
+    viewModel.handleCallEvent(event);
+
+    if (event.type != 'call_invite') {
+      if (_presentedIncomingCallId == event.call.id.toString() &&
+          event.call.isTerminal) {
+        _presentedIncomingCallId = null;
+      }
+      return;
+    }
+
+    if (_lifecycleState != AppLifecycleState.resumed) return;
+
+    final callId = event.call.id.toString();
+    if (_presentedIncomingCallId == callId) return;
+
+    _presentedIncomingCallId = callId;
+    widget.navigatorKey.currentState
+        ?.push(
+          MaterialPageRoute(
+            builder: (_) => const IncomingCallScreen(),
+            fullscreenDialog: true,
+          ),
+        )
+        .whenComplete(() {
+          if (_presentedIncomingCallId == callId) {
+            _presentedIncomingCallId = null;
+          }
+        });
   }
 
   @override

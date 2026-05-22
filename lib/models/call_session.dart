@@ -22,6 +22,11 @@ class CallSession {
   final DateTime? startedAt;
   final DateTime? acceptedAt;
   final DateTime? endedAt;
+  final CallParticipant? endedBy;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+  final bool isActive;
+  final bool isTerminal;
   final int durationSeconds;
 
   const CallSession({
@@ -35,10 +40,16 @@ class CallSession {
     this.startedAt,
     this.acceptedAt,
     this.endedAt,
+    this.endedBy,
+    this.createdAt,
+    this.updatedAt,
+    this.isActive = false,
+    this.isTerminal = false,
     this.durationSeconds = 0,
   });
 
   factory CallSession.fromJson(Map<String, dynamic> json) {
+    final endedBy = json['ended_by'] ?? json['endedBy'];
     return CallSession(
       id: (json['id'] ?? '').toString(),
       uuid: (json['uuid'] ?? '').toString(),
@@ -54,6 +65,13 @@ class CallSession {
       startedAt: _parseDate(json['started_at'] ?? json['startedAt']),
       acceptedAt: _parseDate(json['accepted_at'] ?? json['acceptedAt']),
       endedAt: _parseDate(json['ended_at'] ?? json['endedAt']),
+      endedBy: endedBy is Map
+          ? CallParticipant.fromJson(Map<String, dynamic>.from(endedBy))
+          : null,
+      createdAt: _parseDate(json['created_at'] ?? json['createdAt']),
+      updatedAt: _parseDate(json['updated_at'] ?? json['updatedAt']),
+      isActive: json['is_active'] == true || json['isActive'] == true,
+      isTerminal: json['is_terminal'] == true || json['isTerminal'] == true,
       durationSeconds: _parseInt(
         json['duration_seconds'] ?? json['durationSeconds'],
       ),
@@ -72,6 +90,11 @@ class CallSession {
       'started_at': startedAt?.toIso8601String(),
       'accepted_at': acceptedAt?.toIso8601String(),
       'ended_at': endedAt?.toIso8601String(),
+      'ended_by': endedBy?.toJson(),
+      'created_at': createdAt?.toIso8601String(),
+      'updated_at': updatedAt?.toIso8601String(),
+      'is_active': isActive,
+      'is_terminal': isTerminal,
       'duration_seconds': durationSeconds,
     };
   }
@@ -87,6 +110,11 @@ class CallSession {
     DateTime? startedAt,
     DateTime? acceptedAt,
     DateTime? endedAt,
+    CallParticipant? endedBy,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+    bool? isActive,
+    bool? isTerminal,
     int? durationSeconds,
   }) {
     return CallSession(
@@ -100,6 +128,11 @@ class CallSession {
       startedAt: startedAt ?? this.startedAt,
       acceptedAt: acceptedAt ?? this.acceptedAt,
       endedAt: endedAt ?? this.endedAt,
+      endedBy: endedBy ?? this.endedBy,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      isActive: isActive ?? this.isActive,
+      isTerminal: isTerminal ?? this.isTerminal,
       durationSeconds: durationSeconds ?? this.durationSeconds,
     );
   }
@@ -129,12 +162,17 @@ class CallSession {
             other.startedAt == startedAt &&
             other.acceptedAt == acceptedAt &&
             other.endedAt == endedAt &&
+            other.endedBy == endedBy &&
+            other.createdAt == createdAt &&
+            other.updatedAt == updatedAt &&
+            other.isActive == isActive &&
+            other.isTerminal == isTerminal &&
             other.durationSeconds == durationSeconds;
   }
 
   @override
   int get hashCode {
-    return Object.hash(
+    return Object.hashAll([
       id,
       uuid,
       caller,
@@ -145,7 +183,12 @@ class CallSession {
       startedAt,
       acceptedAt,
       endedAt,
+      endedBy,
+      createdAt,
+      updatedAt,
+      isActive,
+      isTerminal,
       durationSeconds,
-    );
+    ]);
   }
 }
