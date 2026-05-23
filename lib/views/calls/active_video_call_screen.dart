@@ -8,6 +8,8 @@ import '../../viewmodels/call_viewmodel.dart';
 import 'call_screen_helpers.dart';
 
 class ActiveVideoCallScreen extends StatefulWidget {
+  static const routeName = '/calls/active-video';
+
   const ActiveVideoCallScreen({super.key});
 
   @override
@@ -73,6 +75,8 @@ class _ActiveVideoCallScreenState extends State<ActiveVideoCallScreen> {
                                 ? 'Reconnecting...'
                                 : vm.callState == CallState.connecting
                                 ? 'Connecting...'
+                                : vm.callState == CallState.failed
+                                ? 'Call failed'
                                 : 'Waiting for video',
                             participant: participant,
                           ),
@@ -99,9 +103,7 @@ class _ActiveVideoCallScreenState extends State<ActiveVideoCallScreen> {
                         vertical: 7,
                       ),
                       child: Text(
-                        vm.callState == CallState.reconnecting
-                            ? 'Reconnecting...'
-                            : formatCallDuration(vm.callDuration),
+                        _statusText(vm),
                         style: const TextStyle(
                           color: AppColors.primaryColor,
                           fontWeight: FontWeight.w600,
@@ -217,9 +219,7 @@ class _ActiveVideoCallScreenState extends State<ActiveVideoCallScreen> {
                             tooltip: 'End call',
                             backgroundColor: Colors.red,
                             iconColor: Colors.white,
-                            onPressed: vm.isConnecting
-                                ? null
-                                : () => vm.endCall(),
+                            onPressed: () => vm.endCall(),
                           ),
                         ],
                       ),
@@ -232,6 +232,16 @@ class _ActiveVideoCallScreenState extends State<ActiveVideoCallScreen> {
         );
       },
     );
+  }
+
+  String _statusText(CallViewModel vm) {
+    return switch (vm.callState) {
+      CallState.reconnecting => 'Reconnecting...',
+      CallState.connecting => 'Connecting...',
+      CallState.failed => 'Call failed',
+      CallState.ended => 'Call ended',
+      _ => formatCallDuration(vm.callDuration),
+    };
   }
 }
 

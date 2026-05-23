@@ -6,6 +6,8 @@ import '../../viewmodels/call_viewmodel.dart';
 import 'call_screen_helpers.dart';
 
 class ActiveAudioCallScreen extends StatefulWidget {
+  static const routeName = '/calls/active-audio';
+
   const ActiveAudioCallScreen({super.key});
 
   @override
@@ -79,13 +81,7 @@ class _ActiveAudioCallScreenState extends State<ActiveAudioCallScreen> {
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 8),
-                CallStatusText(
-                  text: vm.callState == CallState.reconnecting
-                      ? 'Reconnecting...'
-                      : vm.callState == CallState.connecting
-                      ? 'Connecting...'
-                      : formatCallDuration(vm.callDuration),
-                ),
+                CallStatusText(text: _statusText(vm)),
                 if (vm.errorMessage != null) ...[
                   const SizedBox(height: 16),
                   CallStatusText(text: vm.errorMessage!, isError: true),
@@ -126,7 +122,7 @@ class _ActiveAudioCallScreenState extends State<ActiveAudioCallScreen> {
                       tooltip: 'End call',
                       backgroundColor: Colors.red,
                       iconColor: Colors.white,
-                      onPressed: vm.isConnecting ? null : () => vm.endCall(),
+                      onPressed: () => vm.endCall(),
                     ),
                   ],
                 ),
@@ -137,5 +133,15 @@ class _ActiveAudioCallScreenState extends State<ActiveAudioCallScreen> {
         );
       },
     );
+  }
+
+  String _statusText(CallViewModel vm) {
+    return switch (vm.callState) {
+      CallState.reconnecting => 'Reconnecting...',
+      CallState.connecting => 'Connecting...',
+      CallState.failed => 'Call failed',
+      CallState.ended => 'Call ended',
+      _ => formatCallDuration(vm.callDuration),
+    };
   }
 }

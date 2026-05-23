@@ -48,27 +48,34 @@ class AuthViewModel extends ChangeNotifier {
   }
 
   Future<void> checkAuthStatus() async {
+    debugPrint('[startup] auth check started');
     _isLoading = true;
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     _isAuthenticated = prefs.getBool('isLoggedIn') ?? false;
     ApiService.currentUserId = prefs.getString('user_id');
-    if (_isAuthenticated) {
-      try {
-        await _socketService.connect();
-      } catch (e) {
-        debugPrint('WebSocket connect failed: $e');
-      }
-      try {
-        await NotificationService.getTokenAndSave();
-      } catch (e) {
-        debugPrint('FCM token save failed (non-fatal): $e');
-      }
-    } else {
+    if (!_isAuthenticated) {
       _socketService.disconnect();
     }
     _isLoading = false;
+    debugPrint(
+      '[startup] auth check completed authenticated=$_isAuthenticated',
+    );
     notifyListeners();
+  }
+
+  Future<void> runPostStartupTasks() async {
+    if (!_isAuthenticated) return;
+    try {
+      await _socketService.connect();
+    } catch (e) {
+      debugPrint('WebSocket connect failed: $e');
+    }
+    try {
+      await NotificationService.getTokenAndSave();
+    } catch (e) {
+      debugPrint('FCM token save failed (non-fatal): $e');
+    }
   }
 
   Future<bool> requestOtp(

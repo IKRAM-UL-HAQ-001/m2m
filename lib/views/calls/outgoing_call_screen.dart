@@ -9,6 +9,8 @@ import 'active_video_call_screen.dart';
 import 'call_screen_helpers.dart';
 
 class OutgoingCallScreen extends StatefulWidget {
+  static const routeName = '/calls/outgoing';
+
   const OutgoingCallScreen({super.key});
 
   @override
@@ -40,7 +42,10 @@ class _OutgoingCallScreenState extends State<OutgoingCallScreen> {
       _navigatedToActive = true;
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => _activeScreenFor(call)),
+        MaterialPageRoute(
+          settings: RouteSettings(name: _activeRouteNameFor(call)),
+          builder: (_) => _activeScreenFor(call),
+        ),
       );
       return;
     }
@@ -70,6 +75,12 @@ class _OutgoingCallScreenState extends State<OutgoingCallScreen> {
     return call.callType == CallType.video
         ? const ActiveVideoCallScreen()
         : const ActiveAudioCallScreen();
+  }
+
+  String _activeRouteNameFor(CallSession call) {
+    return call.callType == CallType.video
+        ? ActiveVideoCallScreen.routeName
+        : ActiveAudioCallScreen.routeName;
   }
 
   @override

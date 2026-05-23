@@ -3,6 +3,10 @@
 *.log
 *.pyc
 *.swp
+.env
+.env.*
+!.env.example
+!.env.*.example
 .DS_Store
 .atom/
 .build/
@@ -27,11 +31,14 @@ migrate_working_dir/
 **/doc/api/
 **/ios/Flutter/.last_build_id
 .dart_tool/
+.packages
 .flutter-plugins
 .flutter-plugins-dependencies
 .pub-cache/
 .pub/
 /build/
+coverage/
+test_output*.txt
 
 # Symbolication related
 app.*.symbols
@@ -43,3 +50,32 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Android/Gradle
+android/.gradle/
+android/local.properties
+android/**/build/
+android/captures/
+android/key.properties
+*.jks
+*.keystore
+
+# iOS/macOS
+ios/Flutter/Generated.xcconfig
+ios/Flutter/flutter_export_environment.sh
+ios/Pods/
+ios/.symlinks/
+ios/DerivedData/
+ios/Runner.xcworkspace/xcuserdata/
+ios/Runner.xcodeproj/project.xcworkspace/xcuserdata/
+ios/Runner.xcodeproj/xcuserdata/
+macos/Pods/
+macos/.symlinks/
+macos/DerivedData/
+macos/Runner.xcworkspace/xcuserdata/
+macos/Runner.xcodeproj/project.xcworkspace/xcuserdata/
+macos/Runner.xcodeproj/xcuserdata/
+
+# IDE/local tooling
+.vscode/
+.codex/

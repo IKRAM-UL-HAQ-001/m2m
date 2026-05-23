@@ -16,9 +16,13 @@
 			<string>M2M sends notifications for new messages and calls.</string>
 			<key>NSLocationWhenInUseUsageDescription</key>
 			<string>M2M needs location access to share your location in chats.</string>
-			<key>NSFaceIDUsageDescription</key>
-			<string>M2M uses Face ID to keep your chats secure.</string>
-			<key>CFBundleDevelopmentRegion</key>
+				<key>NSFaceIDUsageDescription</key>
+				<string>M2M uses Face ID to keep your chats secure.</string>
+				<key>UIBackgroundModes</key>
+				<array>
+					<string>audio</string>
+				</array>
+				<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
 	<string>M2m</string>

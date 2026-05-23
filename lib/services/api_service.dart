@@ -185,18 +185,31 @@ class ApiService {
     String? phone, {
     String defaultCountryCode = '+92',
   }) {
-    final cleaned = (phone ?? '').replaceAll(
-      RegExp(r'[\s\-\(\)\[\]\{\}\.]'),
-      '',
-    );
+    final raw = phone ?? '';
+    final hasLeadingPlus = raw.trimLeft().startsWith('+');
+    final digits = raw.replaceAll(RegExp(r'[^\d]'), '');
+    final cleaned = hasLeadingPlus ? '+$digits' : digits;
     if (cleaned.isEmpty) return '';
 
     final countryCode = defaultCountryCode.startsWith('+')
         ? defaultCountryCode
         : '+$defaultCountryCode';
+    final countryDigits = countryCode.replaceAll(RegExp(r'\D'), '');
+
     if (cleaned.startsWith('+')) return cleaned;
+    if (countryDigits == '92') {
+      if (cleaned.length == 11 && cleaned.startsWith('03')) {
+        return '+92${cleaned.substring(1)}';
+      }
+      if (cleaned.length == 10 && cleaned.startsWith('3')) {
+        return '+92$cleaned';
+      }
+      if (cleaned.length == 12 && cleaned.startsWith('92')) {
+        return '+$cleaned';
+      }
+    }
     if (cleaned.startsWith('0')) return '$countryCode${cleaned.substring(1)}';
-    if (cleaned.startsWith('92')) return '+$cleaned';
+    if (cleaned.startsWith(countryDigits)) return '+$cleaned';
     return cleaned;
   }
 
@@ -223,7 +236,9 @@ class ApiService {
       );
     }
 
+    debugPrint('Contact sync local read started');
     final contacts = await FlutterContacts.getContacts(withProperties: true);
+    debugPrint('Contact sync local read completed count=${contacts.length}');
     final byPhone = <String, Map<String, dynamic>>{};
     for (final contact in contacts) {
       final displayName = contact.displayName.trim();
@@ -240,6 +255,7 @@ class ApiService {
         });
       }
     }
+    debugPrint('Contact sync normalized unique count=${byPhone.length}');
     return byPhone.values.toList();
   }
 
@@ -261,6 +277,7 @@ class ApiService {
   Future<ContactDiscoveryResult> _syncContactsInternal(
     List<Map<String, dynamic>>? contacts,
   ) async {
+    debugPrint('Contact sync started');
     final normalizedContacts = contacts ?? await readDeviceContacts();
     final uniqueContacts = <String, Map<String, dynamic>>{};
     for (final contact in normalizedContacts) {
@@ -280,9 +297,11 @@ class ApiService {
       });
     }
     final contactList = uniqueContacts.values.toList();
+    debugPrint('Contact sync unique payload count=${contactList.length}');
 
     await _dio.post('/auth/sync-contacts/', data: {'contacts': contactList});
     final onAppContacts = await fetchUsers(contacts: contactList);
+    debugPrint('Contact sync registered matches count=${onAppContacts.length}');
     final onAppPhones = onAppContacts
         .map((contact) => normalizeContactPhone(contact['phone']?.toString()))
         .where((phone) => phone.isNotEmpty)
@@ -312,6 +331,7 @@ class ApiService {
       _lastContactsSyncKey,
       DateTime.now().millisecondsSinceEpoch,
     );
+    debugPrint('Contact sync completed');
     return ContactDiscoveryResult(
       onAppContacts: onAppContacts,
       offAppContacts: offAppContacts,
@@ -415,6 +435,18 @@ class ApiService {
     try {
       final response = await _dio.get('/api/calls/$callId/');
       return CallSession.fromJson(_asMap(response.data));
+    } on DioException catch (error) {
+      _throwCallApiError(error);
+    }
+  }
+
+  Future<CallSession?> getCurrentCall() async {
+    try {
+      final response = await _dio.get('/api/calls/current/');
+      final data = _asMap(response.data);
+      final callData = data['call'];
+      if (callData == null) return null;
+      return CallSession.fromJson(Map<String, dynamic>.from(callData as Map));
     } on DioException catch (error) {
       _throwCallApiError(error);
     }

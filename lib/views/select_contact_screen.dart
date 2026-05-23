@@ -23,17 +23,20 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
   List<Map<String, dynamic>> _onAppContacts = [];
   List<Map<String, dynamic>> _offAppContacts = [];
   bool _isLoading = true;
+  bool _isRefreshing = false;
   String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
-    _loadUsers();
+    _loadUsers(showFullScreen: true);
   }
 
-  Future<void> _loadUsers() async {
+  Future<void> _loadUsers({bool showFullScreen = false}) async {
     setState(() {
-      _isLoading = true;
+      _isLoading =
+          showFullScreen && _onAppContacts.isEmpty && _offAppContacts.isEmpty;
+      _isRefreshing = !(_isLoading);
       _errorMessage = null;
     });
 
@@ -44,18 +47,21 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
         _onAppContacts = result.onAppContacts;
         _offAppContacts = result.offAppContacts;
         _isLoading = false;
+        _isRefreshing = false;
       });
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() {
         _errorMessage = e.message;
         _isLoading = false;
+        _isRefreshing = false;
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
         _errorMessage = 'Could not sync contacts';
         _isLoading = false;
+        _isRefreshing = false;
       });
     }
   }
@@ -119,7 +125,7 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
         ),
         actions: [
           IconButton(
-            onPressed: _isLoading ? null : _loadUsers,
+            onPressed: _isLoading || _isRefreshing ? null : () => _loadUsers(),
             icon: const Icon(Icons.refresh, color: Colors.white),
           ),
         ],
@@ -136,32 +142,43 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
     }
 
     if (_errorMessage != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                _errorMessage!,
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey[700]),
+      return RefreshIndicator(
+        onRefresh: () => _loadUsers(),
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    _errorMessage!,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.grey[700]),
+                  ),
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: () => _loadUsers(showFullScreen: true),
+                    child: const Text('Try again'),
+                  ),
+                ],
               ),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: _loadUsers,
-                child: const Text('Try again'),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       );
     }
 
     return RefreshIndicator(
-      onRefresh: _loadUsers,
+      onRefresh: () => _loadUsers(),
       child: ListView(
         children: [
+          if (_isRefreshing)
+            const LinearProgressIndicator(
+              minHeight: 2,
+              color: AppColors.primaryColor,
+            ),
           ListTile(
             leading: const CircleAvatar(
               backgroundColor: AppColors.primaryColor,
@@ -173,7 +190,7 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
             ),
             subtitle: const Text('Refresh your phone contacts'),
             trailing: const Icon(Icons.refresh, color: Colors.grey),
-            onTap: _loadUsers,
+            onTap: _isRefreshing ? null : () => _loadUsers(),
           ),
           _sectionHeader('Contacts on M2M', _onAppContacts.length),
           if (_onAppContacts.isEmpty)

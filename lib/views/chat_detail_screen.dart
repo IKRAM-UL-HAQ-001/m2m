@@ -1152,6 +1152,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   }
 
   AppBar _buildAppBar() {
+    final callViewModel = context.watch<CallViewModel>();
+    final canStartCall = callViewModel.canStartCall;
     return AppBar(
       backgroundColor: AppColors.primaryColor,
       iconTheme: const IconThemeData(color: Colors.white),
@@ -1228,12 +1230,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
         IconButton(
           tooltip: 'Audio call',
           icon: const Icon(Icons.call, color: Colors.white),
-          onPressed: () => _startCall('audio'),
+          onPressed: canStartCall ? () => _startCall('audio') : null,
         ),
         IconButton(
           tooltip: 'Video call',
           icon: const Icon(Icons.videocam, color: Colors.white),
-          onPressed: () => _startCall('video'),
+          onPressed: canStartCall ? () => _startCall('video') : null,
         ),
       ],
     );
@@ -1247,6 +1249,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     }
 
     final callViewModel = context.read<CallViewModel>();
+    if (!callViewModel.canStartCall) {
+      _showErrorSnackBar('You are already in a call');
+      return;
+    }
     final call = await callViewModel.startCall(
       receiverId: receiverId,
       callType: callType,
@@ -1261,7 +1267,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
 
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => const OutgoingCallScreen()),
+      MaterialPageRoute(
+        settings: const RouteSettings(name: OutgoingCallScreen.routeName),
+        builder: (_) => const OutgoingCallScreen(),
+      ),
     );
   }
 

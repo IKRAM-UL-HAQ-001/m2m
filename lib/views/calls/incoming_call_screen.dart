@@ -12,6 +12,8 @@ import 'active_video_call_screen.dart';
 import 'call_screen_helpers.dart';
 
 class IncomingCallScreen extends StatefulWidget {
+  static const routeName = '/calls/incoming';
+
   const IncomingCallScreen({super.key});
 
   @override
@@ -21,6 +23,7 @@ class IncomingCallScreen extends StatefulWidget {
 class _IncomingCallScreenState extends State<IncomingCallScreen> {
   bool _navigatedToActive = false;
   bool _closing = false;
+  bool _accepting = false;
   Timer? _timeoutTimer;
 
   @override
@@ -41,17 +44,6 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
     final vm = context.read<CallViewModel>();
     final call = vm.currentCall;
     if (call == null || !mounted) return;
-
-    if (!_navigatedToActive && vm.callState == CallState.active) {
-      _navigatedToActive = true;
-      _timeoutTimer?.cancel();
-      NotificationService().dismissIncomingCall(call.id);
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => _activeScreenFor(call)),
-      );
-      return;
-    }
 
     final terminal = {
       CallState.ended,
@@ -88,6 +80,30 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
     if (Navigator.canPop(context)) {
       Navigator.pop(context);
     }
+  }
+
+  void _acceptCall(CallViewModel vm, CallSession? call) {
+    if (_accepting || call == null) return;
+    debugPrint('Incoming call accept tapped callId=${call.id}');
+    setState(() => _accepting = true);
+    _navigatedToActive = true;
+    _timeoutTimer?.cancel();
+    NotificationService().dismissIncomingCall(call.id);
+    vm.acceptCallFast();
+    vm.markActiveCallScreenPushed();
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        settings: RouteSettings(name: _activeRouteNameFor(call)),
+        builder: (_) => _activeScreenFor(call),
+      ),
+    );
+  }
+
+  String _activeRouteNameFor(CallSession call) {
+    return call.callType == CallType.video
+        ? ActiveVideoCallScreen.routeName
+        : ActiveAudioCallScreen.routeName;
   }
 
   @override
@@ -132,7 +148,7 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
                       backgroundColor: Colors.red,
                       iconColor: Colors.white,
                       size: 64,
-                      onPressed: vm.isConnecting
+                      onPressed: vm.isConnecting || _accepting
                           ? null
                           : () {
                               NotificationService().dismissIncomingCall(
@@ -148,14 +164,9 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
                       backgroundColor: AppColors.primaryColor,
                       iconColor: Colors.white,
                       size: 64,
-                      onPressed: vm.isConnecting
+                      onPressed: vm.isConnecting || _accepting
                           ? null
-                          : () {
-                              NotificationService().dismissIncomingCall(
-                                call?.id,
-                              );
-                              vm.acceptCall();
-                            },
+                          : () => _acceptCall(vm, call),
                     ),
                   ],
                 ),

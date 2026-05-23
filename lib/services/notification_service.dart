@@ -43,7 +43,6 @@ class NotificationService {
 
   NotificationService._internal();
 
-  final FirebaseMessaging _fcm = FirebaseMessaging.instance;
   final FlutterLocalNotificationsPlugin _local =
       FlutterLocalNotificationsPlugin();
   final AudioPlayer _soundPlayer = AudioPlayer();
@@ -58,6 +57,8 @@ class NotificationService {
 
   static GlobalKey<NavigatorState>? navigatorKey;
   bool _localNotificationsReady = false;
+
+  FirebaseMessaging get _fcm => FirebaseMessaging.instance;
 
   Stream<IncomingCallNotificationTap> get incomingCallTapStream =>
       _incomingCallTapController.stream;
@@ -102,7 +103,6 @@ class NotificationService {
     navigatorKey = navKey;
 
     try {
-      await _requestPermission();
       await _setupLocalNotifications();
 
       FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
@@ -122,6 +122,9 @@ class NotificationService {
         });
       }
 
+      debugPrint('[startup] notification permission requested');
+      await _requestPermission();
+      debugPrint('[startup] notification permission completed');
       await _saveToken();
 
       _fcm.onTokenRefresh.listen((token) {

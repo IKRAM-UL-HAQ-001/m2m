@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../viewmodels/auth_viewmodel.dart';
@@ -15,6 +17,8 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen> {
+  bool _didNavigate = false;
+
   @override
   void initState() {
     super.initState();
@@ -26,28 +30,35 @@ class _SplashScreenState extends State<SplashScreen> {
   void _checkStatus() async {
     final authProvider = Provider.of<AuthViewModel>(context, listen: false);
 
-    // Check for previous session
-
     await authProvider.checkAuthStatus();
+    if (!mounted || _didNavigate) return;
 
-    if (mounted) {
-      if (authProvider.isAuthenticated) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => const ResponsiveLayout(
-              mobileLayout: HomeScreen(),
-              webLayout: WebScreenLayout(),
-            ),
-          ),
-        );
-      } else {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const WelcomeScreen()),
-        );
-      }
+    _didNavigate = true;
+    if (authProvider.isAuthenticated) {
+      debugPrint('[startup] splash route decision=home');
+      _replaceWith(
+        const ResponsiveLayout(
+          mobileLayout: HomeScreen(),
+          webLayout: WebScreenLayout(),
+        ),
+      );
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(authProvider.runPostStartupTasks());
+      });
+    } else {
+      debugPrint('[startup] splash route decision=welcome');
+      _replaceWith(const WelcomeScreen());
     }
+  }
+
+  void _replaceWith(Widget page) {
+    Navigator.of(context).pushReplacement(
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) => page,
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: Duration.zero,
+      ),
+    );
   }
 
   @override

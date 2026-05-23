@@ -11,10 +11,7 @@ import '../viewmodels/auth_viewmodel.dart';
 import '../viewmodels/call_viewmodel.dart';
 import '../viewmodels/chat_viewmodel.dart';
 import '../viewmodels/status_viewmodel.dart';
-import 'calls/active_audio_call_screen.dart';
-import 'calls/active_video_call_screen.dart';
 import 'calls/calls_tab.dart';
-import 'calls/call_screen_helpers.dart';
 import 'chats_list_view.dart';
 import 'linked_devices_screen.dart';
 import 'login_screen.dart';
@@ -38,7 +35,6 @@ class _HomeScreenState extends State<HomeScreen>
   bool _isSearching = false;
   String _searchQuery = '';
   int _currentTabIndex = 0;
-  bool _activeCallRouteOpen = false;
 
   @override
   void initState() {
@@ -58,6 +54,7 @@ class _HomeScreenState extends State<HomeScreen>
       if (mounted) {
         Provider.of<ChatViewModel>(context, listen: false).fetchChats();
         Provider.of<StatusViewModel>(context, listen: false).loadStatuses();
+        unawaited(context.read<CallViewModel>().restoreCurrentCallIfNeeded());
         _syncContactsIfNeeded();
       }
     });
@@ -286,19 +283,12 @@ class _HomeScreenState extends State<HomeScreen>
         body: SafeArea(
           top: false,
           bottom: true,
-          child: Column(
+          child: TabBarView(
+            controller: _tabController,
             children: [
-              _OngoingCallBar(onTap: _openActiveCall),
-              Expanded(
-                child: TabBarView(
-                  controller: _tabController,
-                  children: [
-                    ChatsListView(searchQuery: _activeSearchQuery),
-                    StatusTab(searchQuery: _activeSearchQuery),
-                    CallsTab(searchQuery: _activeSearchQuery),
-                  ],
-                ),
-              ),
+              ChatsListView(searchQuery: _activeSearchQuery),
+              StatusTab(searchQuery: _activeSearchQuery),
+              CallsTab(searchQuery: _activeSearchQuery),
             ],
           ),
         ),
@@ -335,22 +325,6 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Future<void> _openActiveCall() async {
-    if (_activeCallRouteOpen) return;
-    final call = context.read<CallViewModel>().currentCall;
-    if (call == null) return;
-    _activeCallRouteOpen = true;
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => call.callType.name == 'video'
-            ? const ActiveVideoCallScreen()
-            : const ActiveAudioCallScreen(),
-      ),
-    );
-    _activeCallRouteOpen = false;
-  }
-
   String get _activeSearchQuery => _isSearching ? _searchQuery : '';
 
   String _getSearchHint() {
@@ -378,84 +352,5 @@ class _HomeScreenState extends State<HomeScreen>
       _searchQuery = '';
       _searchController.clear();
     });
-  }
-}
-
-class _OngoingCallBar extends StatelessWidget {
-  const _OngoingCallBar({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Consumer<CallViewModel>(
-      builder: (context, vm, child) {
-        final call = vm.currentCall;
-        if (call == null || !vm.isInCall) return const SizedBox.shrink();
-        final participant = otherParticipant(call);
-        final reconnecting = vm.callState == CallState.reconnecting;
-        return Material(
-          color: AppColors.primaryColor,
-          child: InkWell(
-            onTap: onTap,
-            child: SafeArea(
-              top: false,
-              bottom: false,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      call.callType.name == 'video'
-                          ? Icons.videocam
-                          : Icons.call,
-                      color: Colors.white,
-                      size: 20,
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            participant.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          Text(
-                            reconnecting ? 'Reconnecting...' : 'Ongoing call',
-                            style: const TextStyle(
-                              color: Colors.white70,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Text(
-                      reconnecting ? '' : vm.formattedDuration,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    const Icon(Icons.keyboard_arrow_up, color: Colors.white),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
   }
 }

@@ -32,6 +32,19 @@ class LiveKitCallService extends ChangeNotifier {
   bool get isConnected => connectionState == lk.ConnectionState.connected;
   bool get isReconnecting => connectionState == lk.ConnectionState.reconnecting;
   lk.LocalParticipant? get localParticipant => _room?.localParticipant;
+  bool? get isLocalAudioEnabled {
+    final publications = localParticipant?.audioTrackPublications;
+    if (publications == null || publications.isEmpty) return null;
+    for (final publication in publications) {
+      return !publication.muted;
+    }
+    return null;
+  }
+
+  String get diagnosticState =>
+      'connection=${connectionState.name} localAudioEnabled=$isLocalAudioEnabled '
+      'remoteParticipants=${_room?.remoteParticipants.length ?? 0}';
+
   lk.RemoteParticipant? get remoteParticipant {
     final participants = _room?.remoteParticipants.values;
     if (participants == null || participants.isEmpty) return null;

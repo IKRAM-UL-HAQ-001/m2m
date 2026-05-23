@@ -6,6 +6,8 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
 
     <!-- Audio recording and routing for voice messages and calls -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
@@ -43,7 +45,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:launchMode="singleTop"
+            android:launchMode="singleTask"
             android:taskAffinity=""
             android:theme="@style/LaunchTheme"
             android:showWhenLocked="true"
@@ -60,6 +62,10 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <service
+            android:name=".CallForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
