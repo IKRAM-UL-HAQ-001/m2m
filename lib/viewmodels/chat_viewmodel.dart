@@ -65,10 +65,12 @@ class ChatViewModel extends ChangeNotifier {
     _chats[index] = updatedChat;
     notifyListeners();
     unawaited(_db.updateLocalChat(updatedChat.toEntity()));
+    unawaited(_db.markMessagesRead(chatId));
   }
 
   void _handleNewMessage(Message message) {
     if (_isDuplicateMessageEvent(message)) return;
+    unawaited(_db.upsertMessage(message));
     // Find the chat and update its last message and unread count
     final index = _chats.indexWhere((c) => c.id == message.chatId);
     if (index != -1) {
@@ -147,11 +149,18 @@ class ChatViewModel extends ChangeNotifier {
     final index = _chats.indexWhere((c) => c.id == status.chatId);
     if (index != -1) {
       final chat = _chats[index];
-      if (chat.lastMessageStatus == status.deliveryState) return;
-      final updatedChat = chat.copyWith(lastMessageStatus: status.deliveryState);
-      _chats[index] = updatedChat;
-      notifyListeners();
-      unawaited(_db.updateLocalChat(updatedChat.toEntity()));
+      if (chat.lastMessageStatus != status.deliveryState) {
+        final updatedChat = chat.copyWith(
+          lastMessageStatus: status.deliveryState,
+        );
+        _chats[index] = updatedChat;
+        notifyListeners();
+        unawaited(_db.updateLocalChat(updatedChat.toEntity()));
+      }
+    }
+    for (final id
+        in status.messageIds.isEmpty ? [status.messageId] : status.messageIds) {
+      unawaited(_db.updateMessageStatus(id, status.deliveryState));
     }
   }
 

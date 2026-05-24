@@ -5,6 +5,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../models/chat.dart';
 import '../models/message.dart';
 import '../services/api_service.dart';
+import '../services/database_service.dart';
 import '../services/websocket_service.dart';
 import '../utils/constants.dart';
 import 'dart:async';
@@ -21,6 +22,7 @@ class WebChatView extends StatefulWidget {
 class _WebChatViewState extends State<WebChatView> {
   final TextEditingController _messageController = TextEditingController();
   final ApiService _apiService = ApiService();
+  final AppDatabase _db = AppDatabase();
   bool _showSendIcon = false;
   List<Message> _messages = [];
   bool _isLoading = true;
@@ -51,10 +53,12 @@ class _WebChatViewState extends State<WebChatView> {
     _messageStatusSubscription?.cancel();
     _socketSubscription = SocketService().messageStream.listen((message) {
       if (message.chatId == widget.chat.id) {
+        unawaited(_db.upsertMessage(message));
         setState(() {
           _upsertMessage(message);
         });
         if (!message.isMe) {
+          unawaited(_db.markMessagesRead(widget.chat.id));
           _apiService.markChatRead(widget.chat.id).catchError((_) {});
         }
       }
@@ -63,6 +67,12 @@ class _WebChatViewState extends State<WebChatView> {
       status,
     ) {
       if (status.chatId == widget.chat.id) {
+        for (final id
+            in status.messageIds.isEmpty
+                ? [status.messageId]
+                : status.messageIds) {
+          unawaited(_db.updateMessageStatus(id, status.deliveryState));
+        }
         setState(() {
           _applyMessageStatus(status);
         });
@@ -73,12 +83,25 @@ class _WebChatViewState extends State<WebChatView> {
   void _loadMessages() async {
     setState(() => _isLoading = true);
     try {
+      final cachedMessages = await _db.getCachedMessages(widget.chat.id);
+      if (mounted && cachedMessages.isNotEmpty) {
+        setState(() {
+          _messages = cachedMessages;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading cached messages: $e');
+    }
+    try {
       final messages = await _apiService.getMessages(widget.chat.id);
+      unawaited(_db.upsertMessages(widget.chat.id, messages));
       setState(() {
         _messages = messages;
         _isLoading = false;
       });
       _chatViewModel.markChatRead(widget.chat.id);
+      unawaited(_db.markMessagesRead(widget.chat.id));
     } catch (e) {
       setState(() => _isLoading = false);
     }
@@ -120,6 +143,7 @@ class _WebChatViewState extends State<WebChatView> {
         text,
         clientUuid: ApiService.createClientUuid(),
       );
+      unawaited(_db.upsertMessage(message));
       setState(() {
         _upsertMessage(message);
       });

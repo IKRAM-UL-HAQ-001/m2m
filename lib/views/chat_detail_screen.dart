@@ -20,6 +20,7 @@ import 'package:video_player/video_player.dart';
 import '../models/chat.dart';
 import '../models/message.dart';
 import '../services/api_service.dart';
+import '../services/database_service.dart';
 import '../services/notification_service.dart';
 import '../services/permission_service.dart';
 import '../services/websocket_service.dart';
@@ -50,6 +51,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   final FocusNode _focusNode = FocusNode();
   final ScrollController _scrollController = ScrollController();
   final ApiService _apiService = ApiService();
+  final AppDatabase _db = AppDatabase();
   final AudioRecorder _audioRecorder = AudioRecorder();
   final Map<String, GlobalKey> _messageKeys = {};
 
@@ -146,6 +148,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       }
       final changed = _upsertMessage(msg);
       if (changed) {
+        unawaited(_db.upsertMessage(msg));
         setState(() {});
         if (!msg.isMe) {
           _markCurrentChatRead(messageId: msg.id);
@@ -155,25 +158,46 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     _statusSubscription = SocketService().messageStatusStream.listen((status) {
       if (status.chatId == _currentChatId && mounted) {
         final changed = _applyStatus(status);
+        for (final id
+            in status.messageIds.isEmpty
+                ? [status.messageId]
+                : status.messageIds) {
+          unawaited(_db.updateMessageStatus(id, status.deliveryState));
+        }
         if (changed) setState(() {});
       }
     });
     _editSubscription = SocketService().messageEditStream.listen((data) {
       if (data['chat_id']?.toString() == _currentChatId && mounted) {
         final changed = _applyEdit(data);
-        if (changed) setState(() {});
+        if (changed) {
+          final messageId = data['message_id']?.toString();
+          final message = _messageById(messageId);
+          if (message != null) unawaited(_db.upsertMessage(message));
+          setState(() {});
+        }
       }
     });
     _deleteSubscription = SocketService().messageDeleteStream.listen((data) {
       if (data['chat_id']?.toString() == _currentChatId && mounted) {
         final changed = _applyDelete(data);
-        if (changed) setState(() {});
+        if (changed) {
+          final messageId = data['message_id']?.toString();
+          final message = _messageById(messageId);
+          if (message != null) unawaited(_db.upsertMessage(message));
+          setState(() {});
+        }
       }
     });
     _reactionSubscription = SocketService().reactionStream.listen((data) {
       if (data['chat_id']?.toString() == _currentChatId && mounted) {
         final changed = _applyReaction(data);
-        if (changed) setState(() {});
+        if (changed) {
+          final messageId = data['message_id']?.toString();
+          final message = _messageById(messageId);
+          if (message != null) unawaited(_db.upsertMessage(message));
+          setState(() {});
+        }
       }
     });
     _typingSubscription = SocketService().typingStream.listen((data) {
@@ -231,7 +255,20 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       return;
     }
     try {
+      final cachedMessages = await _db.getCachedMessages(_currentChatId!);
+      if (mounted && cachedMessages.isNotEmpty) {
+        setState(() {
+          _messages = cachedMessages;
+          _isLoading = false;
+          _pruneMessageKeys();
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading cached messages: $e');
+    }
+    try {
       final messages = await _apiService.getMessages(_currentChatId!);
+      unawaited(_db.upsertMessages(_currentChatId!, messages));
       if (mounted) {
         setState(() {
           _messages = messages;
@@ -280,6 +317,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     return true;
   }
 
+  Message? _messageById(String? messageId) {
+    if (messageId == null || messageId.isEmpty) return null;
+    final index = _messages.indexWhere((m) => m.id == messageId);
+    return index == -1 ? null : _messages[index];
+  }
+
   bool _isDuplicateSocketMessage(Message message) {
     final key = '${message.chatId}:${message.clientUuid}:${message.id}';
     if (_recentSocketMessageKeys.contains(key)) return true;
@@ -302,6 +345,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       _hasMarkedOpenChatRead = true;
     }
     _chatViewModel.markChatRead(chatId);
+    unawaited(_db.markMessagesRead(chatId));
     _apiService.markChatRead(chatId).catchError((_) {});
   }
 
@@ -623,19 +667,20 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     setState(() => _replyingToMessage = null);
 
     setState(() {
-      _messages.insert(
-        0,
-        Message(
-          id: clientUuid,
-          clientUuid: clientUuid,
-          text: text,
-          senderId: ApiService.currentUserId ?? '0',
-          time: DateTime.now(),
-          isMe: true,
-          chatId: _currentChatId ?? widget.chat.id,
-          deliveryState: DeliveryState.pending,
-        ),
+      final pendingMessage = Message(
+        id: clientUuid,
+        clientUuid: clientUuid,
+        text: text,
+        senderId: ApiService.currentUserId ?? '0',
+        time: DateTime.now(),
+        isMe: true,
+        chatId: _currentChatId ?? widget.chat.id,
+        deliveryState: DeliveryState.pending,
       );
+      _messages.insert(0, pendingMessage);
+      if (!pendingMessage.chatId.startsWith('new_')) {
+        unawaited(_db.upsertMessage(pendingMessage));
+      }
       _pruneMessageKeys();
     });
     _scrollToBottom();
@@ -654,6 +699,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       }
       if (mounted) {
         final changed = _upsertMessage(message);
+        unawaited(_db.upsertMessage(message));
         if (changed) setState(() {});
       }
     } catch (e) {
@@ -664,6 +710,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
             _messages[index] = _messages[index].copyWith(
               deliveryState: DeliveryState.failed,
             );
+            if (!_messages[index].chatId.startsWith('new_')) {
+              unawaited(_db.upsertMessage(_messages[index]));
+            }
           }
         });
         ScaffoldMessenger.of(
@@ -683,20 +732,21 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     };
     if (mounted) {
       setState(() {
-        _messages.insert(
-          0,
-          Message(
-            id: clientUuid,
-            clientUuid: clientUuid,
-            text: pendingText,
-            senderId: ApiService.currentUserId ?? '0',
-            time: DateTime.now(),
-            isMe: true,
-            chatId: _currentChatId ?? widget.chat.id,
-            type: type ?? 'document',
-            deliveryState: DeliveryState.pending,
-          ),
+        final pendingMessage = Message(
+          id: clientUuid,
+          clientUuid: clientUuid,
+          text: pendingText,
+          senderId: ApiService.currentUserId ?? '0',
+          time: DateTime.now(),
+          isMe: true,
+          chatId: _currentChatId ?? widget.chat.id,
+          type: type ?? 'document',
+          deliveryState: DeliveryState.pending,
         );
+        _messages.insert(0, pendingMessage);
+        if (!pendingMessage.chatId.startsWith('new_')) {
+          unawaited(_db.upsertMessage(pendingMessage));
+        }
         _pruneMessageKeys();
       });
       _scrollToBottom();
@@ -719,6 +769,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
             _chatViewModel.setActiveChat(_currentChatId);
           }
           _upsertMessage(message);
+          unawaited(_db.upsertMessage(message));
         });
       }
     } catch (_) {
@@ -729,6 +780,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
             _messages[idx] = _messages[idx].copyWith(
               deliveryState: DeliveryState.failed,
             );
+            if (!_messages[idx].chatId.startsWith('new_')) {
+              unawaited(_db.upsertMessage(_messages[idx]));
+            }
           }
         });
         ScaffoldMessenger.of(
@@ -1056,6 +1110,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
         final index = _messages.indexWhere((m) => m.id == message.id);
         if (index == -1) return;
         if (deleteType == 'for_me') {
+          unawaited(
+            _db.upsertMessage(_messages[index].copyWith(isDeletedForMe: true)),
+          );
           _messages.removeAt(index);
           _pruneMessageKeys();
         } else {
@@ -1064,6 +1121,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
             isDeletedForEveryone: true,
             fileUrl: '',
           );
+          unawaited(_db.upsertMessage(_messages[index]));
           _pruneMessageKeys(keepMessageId: message.id);
         }
       });
@@ -1112,6 +1170,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
             text: newText,
             editedAt: DateTime.now(),
           );
+          unawaited(_db.upsertMessage(_messages[index]));
         }
       });
     } on ApiException catch (e) {
