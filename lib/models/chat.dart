@@ -62,4 +62,40 @@ class Chat {
       isOnline: (json['presence']?['is_online'] ?? false) == true,
     );
   }
+
+  Chat copyWith({
+    String? id,
+    String? receiverId,
+    String? name,
+    String? phone,
+    String? about,
+    String? avatarUrl,
+    String? lastMessage,
+    String? lastMessageType,
+    MessageStatus? lastMessageStatus,
+    Object? lastMessageFileUrl = _sentinel,
+    DateTime? time,
+    int? unreadCount,
+    bool? isOnline,
+  }) {
+    return Chat(
+      id: id ?? this.id,
+      receiverId: receiverId ?? this.receiverId,
+      name: name ?? this.name,
+      phone: phone ?? this.phone,
+      about: about ?? this.about,
+      avatarUrl: avatarUrl ?? this.avatarUrl,
+      lastMessage: lastMessage ?? this.lastMessage,
+      lastMessageType: lastMessageType ?? this.lastMessageType,
+      lastMessageStatus: lastMessageStatus ?? this.lastMessageStatus,
+      lastMessageFileUrl: identical(lastMessageFileUrl, _sentinel)
+          ? this.lastMessageFileUrl
+          : lastMessageFileUrl as String?,
+      time: time ?? this.time,
+      unreadCount: unreadCount ?? this.unreadCount,
+      isOnline: isOnline ?? this.isOnline,
+    );
+  }
 }
+
+const Object _sentinel = Object();

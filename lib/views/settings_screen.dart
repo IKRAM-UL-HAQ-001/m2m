@@ -392,6 +392,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                             ApiService.mediaUrl(
                                               _profilePictureUrl,
                                             ),
+                                            maxWidth: 200,
+                                            maxHeight: 200,
                                           )
                                           as ImageProvider
                                     : null,

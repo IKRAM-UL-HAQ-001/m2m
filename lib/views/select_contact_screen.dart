@@ -263,7 +263,11 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
       },
       leading: CircleAvatar(
         backgroundImage: profilePic.isNotEmpty
-            ? CachedNetworkImageProvider(ApiService.mediaUrl(profilePic))
+            ? CachedNetworkImageProvider(
+                ApiService.mediaUrl(profilePic),
+                maxWidth: 96,
+                maxHeight: 96,
+              )
             : null,
         backgroundColor: Colors.grey[300],
         child: profilePic.isEmpty

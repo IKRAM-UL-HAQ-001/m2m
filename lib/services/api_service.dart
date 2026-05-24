@@ -47,16 +47,11 @@ class ApiService {
   static final Random _uuidRandom = Random.secure();
   static const String _lastContactsSyncKey = 'last_contacts_sync_at';
   static Future<ContactDiscoveryResult>? _contactsSyncInFlight;
+  static final DioClient _dioClient = DioClient()..initialize();
 
-  Dio get _dio {
-    DioClient().initialize();
-    return DioClient().dio;
-  }
+  Dio get _dio => _dioClient.dio;
 
-  Dio get _uploadDio {
-    DioClient().initialize();
-    return DioClient().uploadDio;
-  }
+  Dio get _uploadDio => _dioClient.uploadDio;
 
   static String createClientUuid() {
     final bytes = List<int>.generate(16, (_) => _uuidRandom.nextInt(256));
@@ -279,11 +274,14 @@ class ApiService {
   ) async {
     debugPrint('Contact sync started');
     final normalizedContacts = contacts ?? await readDeviceContacts();
+    final contactsAlreadyNormalized = contacts == null;
     final uniqueContacts = <String, Map<String, dynamic>>{};
     for (final contact in normalizedContacts) {
-      final phone = normalizeContactPhone(
-        (contact['phone_number'] ?? contact['phone'] ?? '').toString(),
-      );
+      final rawPhone = (contact['phone_number'] ?? contact['phone'] ?? '')
+          .toString();
+      final phone = contactsAlreadyNormalized
+          ? rawPhone
+          : normalizeContactPhone(rawPhone);
       if (phone.isEmpty) continue;
       final name = (contact['name'] ?? contact['contact_name'] ?? '')
           .toString();
@@ -312,14 +310,14 @@ class ApiService {
     );
     final offAppContacts = contactList
         .where((contact) {
-          final phone = normalizeContactPhone(contact['phone']?.toString());
+          final phone = contact['phone']?.toString() ?? '';
           return phone.isNotEmpty &&
               phone != currentUserPhone &&
               !onAppPhones.contains(phone);
         })
         .map(
           (contact) => {
-            'phone': normalizeContactPhone(contact['phone']?.toString()),
+            'phone': contact['phone']?.toString() ?? '',
             'contact_name': (contact['contact_name'] ?? contact['name'] ?? '')
                 .toString(),
             'has_account': false,
@@ -624,8 +622,7 @@ class ApiService {
 
   Future<bool> deleteAccount(String otp) async {
     await _dio.post('/auth/delete-account/', data: {'otp': otp});
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.clear();
+    await TokenStorage.clearAll();
     return true;
   }
 

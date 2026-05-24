@@ -81,7 +81,12 @@ class _ActiveAudioCallScreenState extends State<ActiveAudioCallScreen> {
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 8),
-                CallStatusText(text: _statusText(vm)),
+                ValueListenableBuilder<Duration>(
+                  valueListenable: vm.callDurationNotifier,
+                  builder: (context, duration, child) {
+                    return CallStatusText(text: _statusText(vm, duration));
+                  },
+                ),
                 if (vm.errorMessage != null) ...[
                   const SizedBox(height: 16),
                   CallStatusText(text: vm.errorMessage!, isError: true),
@@ -135,13 +140,13 @@ class _ActiveAudioCallScreenState extends State<ActiveAudioCallScreen> {
     );
   }
 
-  String _statusText(CallViewModel vm) {
+  String _statusText(CallViewModel vm, Duration duration) {
     return switch (vm.callState) {
       CallState.reconnecting => 'Reconnecting...',
       CallState.connecting => 'Connecting...',
       CallState.failed => 'Call failed',
       CallState.ended => 'Call ended',
-      _ => formatCallDuration(vm.callDuration),
+      _ => formatCallDuration(duration),
     };
   }
 }

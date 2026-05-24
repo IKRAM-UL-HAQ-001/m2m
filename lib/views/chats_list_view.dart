@@ -98,6 +98,8 @@ class ChatsListView extends StatelessWidget {
               backgroundImage: chat.avatarUrl.isNotEmpty
                   ? CachedNetworkImageProvider(
                       ApiService.mediaUrl(chat.avatarUrl),
+                      maxWidth: 104,
+                      maxHeight: 104,
                     )
                   : null,
               child: chat.avatarUrl.isEmpty

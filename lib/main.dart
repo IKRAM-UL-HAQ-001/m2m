@@ -45,6 +45,7 @@ void main() async {
       DeviceOrientation.portraitDown,
     ]),
   );
+  await TokenStorage.init();
   DioClient().initialize();
 
   debugPrint('[startup] runApp called');

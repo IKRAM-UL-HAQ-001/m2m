@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:audioplayers/audioplayers.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dio/dio.dart';
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
@@ -11,7 +10,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gal/gal.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:record/record.dart';
@@ -31,6 +29,8 @@ import '../viewmodels/chat_viewmodel.dart';
 import '../viewmodels/call_viewmodel.dart';
 import '../widgets/forward_contact_picker_sheet.dart';
 import '../widgets/profile_quick_modal.dart';
+import 'chat/widgets/chat_input_bar.dart';
+import 'chat/widgets/message_list.dart';
 import 'calls/outgoing_call_screen.dart';
 
 class ChatDetailScreen extends StatefulWidget {
@@ -44,6 +44,7 @@ class ChatDetailScreen extends StatefulWidget {
 class _ChatDetailScreenState extends State<ChatDetailScreen>
     with TickerProviderStateMixin {
   static const double _emojiPickerHeight = 280;
+  static const int _maxMessageScrollKeys = 50;
 
   final TextEditingController _messageController = TextEditingController();
   final FocusNode _focusNode = FocusNode();
@@ -84,6 +85,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   Set<String> _downloadedUrls = {};
   String? _currentChatId;
   late final ChatViewModel _chatViewModel;
+  final Set<String> _recentSocketMessageKeys = {};
+  final List<String> _recentSocketMessageOrder = [];
+  final Set<String> _readMarkedMessageIds = {};
+  bool _hasMarkedOpenChatRead = false;
+  static const int _maxRecentSocketMessages = 200;
 
   StreamSubscription<Message>? _socketSubscription;
   StreamSubscription<MessageStatusUpdate>? _statusSubscription;
@@ -91,14 +97,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   StreamSubscription<Map<String, dynamic>>? _editSubscription;
   StreamSubscription<Map<String, dynamic>>? _deleteSubscription;
   StreamSubscription<Map<String, dynamic>>? _reactionSubscription;
-
-  final Map<String, Widget> _messageWidgetCache = {};
-
-  @override
-  void setState(VoidCallback fn) {
-    _messageWidgetCache.clear();
-    super.setState(fn);
-  }
 
   @override
   void initState() {
@@ -114,7 +112,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     _listenToSocket();
     if (!_currentChatId!.startsWith('new_')) {
       SocketService().sendChatOpened(_currentChatId!);
-      _apiService.markChatRead(_currentChatId!).catchError((_) {});
+      _markCurrentChatRead();
     }
     _focusNode.addListener(() {
       if (_focusNode.hasFocus && _showEmojiPicker) {
@@ -140,31 +138,42 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
 
   void _listenToSocket() {
     _socketSubscription = SocketService().messageStream.listen((msg) {
-      if (msg.chatId == _currentChatId && mounted) {
-        setState(() => _upsertMessage(msg));
+      if (!mounted || msg.chatId != _currentChatId) {
+        return;
+      }
+      if (_isDuplicateSocketMessage(msg)) {
+        return;
+      }
+      final changed = _upsertMessage(msg);
+      if (changed) {
+        setState(() {});
         if (!msg.isMe) {
-          _apiService.markChatRead(_currentChatId!).catchError((_) {});
+          _markCurrentChatRead(messageId: msg.id);
         }
       }
     });
     _statusSubscription = SocketService().messageStatusStream.listen((status) {
       if (status.chatId == _currentChatId && mounted) {
-        setState(() => _applyStatus(status));
+        final changed = _applyStatus(status);
+        if (changed) setState(() {});
       }
     });
     _editSubscription = SocketService().messageEditStream.listen((data) {
       if (data['chat_id']?.toString() == _currentChatId && mounted) {
-        setState(() => _applyEdit(data));
+        final changed = _applyEdit(data);
+        if (changed) setState(() {});
       }
     });
     _deleteSubscription = SocketService().messageDeleteStream.listen((data) {
       if (data['chat_id']?.toString() == _currentChatId && mounted) {
-        setState(() => _applyDelete(data));
+        final changed = _applyDelete(data);
+        if (changed) setState(() {});
       }
     });
     _reactionSubscription = SocketService().reactionStream.listen((data) {
       if (data['chat_id']?.toString() == _currentChatId && mounted) {
-        setState(() => _applyReaction(data));
+        final changed = _applyReaction(data);
+        if (changed) setState(() {});
       }
     });
     _typingSubscription = SocketService().typingStream.listen((data) {
@@ -174,6 +183,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       if (chatId == _currentChatId &&
           userId != ApiService.currentUserId &&
           mounted) {
+        if (_isOtherTyping == isTyping) return;
         setState(() => _isOtherTyping = isTyping);
         _typingClearTimer?.cancel();
         if (isTyping) {
@@ -226,8 +236,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
         setState(() {
           _messages = messages;
           _isLoading = false;
+          _pruneMessageKeys();
         });
-        _chatViewModel.markChatRead(_currentChatId!);
+        _markCurrentChatRead();
       }
     } catch (e) {
       if (mounted) setState(() => _isLoading = false);
@@ -250,19 +261,66 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     await prefs.setStringList('downloaded_urls', _downloadedUrls.toList());
   }
 
-  void _upsertMessage(Message message) {
+  bool _upsertMessage(Message message) {
     final existingIndex = _messages.indexWhere(
       (m) => m.id == message.id || m.clientUuid == message.clientUuid,
     );
     if (existingIndex == -1) {
       _messages.insert(0, message);
+      _pruneMessageKeys();
+      return true;
+    }
+
+    if (_messages[existingIndex] == message) {
+      return false;
     } else {
       _messages[existingIndex] = message;
     }
+    _pruneMessageKeys();
+    return true;
   }
 
-  GlobalKey _messageKey(String messageId) {
+  bool _isDuplicateSocketMessage(Message message) {
+    final key = '${message.chatId}:${message.clientUuid}:${message.id}';
+    if (_recentSocketMessageKeys.contains(key)) return true;
+    _recentSocketMessageKeys.add(key);
+    _recentSocketMessageOrder.add(key);
+    if (_recentSocketMessageOrder.length > _maxRecentSocketMessages) {
+      final oldest = _recentSocketMessageOrder.removeAt(0);
+      _recentSocketMessageKeys.remove(oldest);
+    }
+    return false;
+  }
+
+  void _markCurrentChatRead({String? messageId}) {
+    final chatId = _currentChatId;
+    if (chatId == null || chatId.startsWith('new_')) return;
+    if (messageId != null) {
+      if (!_readMarkedMessageIds.add(messageId)) return;
+    } else {
+      if (_hasMarkedOpenChatRead) return;
+      _hasMarkedOpenChatRead = true;
+    }
+    _chatViewModel.markChatRead(chatId);
+    _apiService.markChatRead(chatId).catchError((_) {});
+  }
+
+  GlobalKey? _messageTargetKey(String messageId) {
+    if (messageId != _highlightedMessageId) return null;
     return _messageKeys.putIfAbsent(messageId, GlobalKey.new);
+  }
+
+  void _pruneMessageKeys({String? keepMessageId}) {
+    if (_messageKeys.isEmpty) return;
+    final loadedIds = _messages.map((message) => message.id).toSet();
+    final keepId = keepMessageId ?? _highlightedMessageId;
+    _messageKeys.removeWhere((id, _) {
+      if (!loadedIds.contains(id)) return true;
+      return keepId == null || id != keepId;
+    });
+    while (_messageKeys.length > _maxMessageScrollKeys) {
+      _messageKeys.remove(_messageKeys.keys.first);
+    }
   }
 
   Future<void> _scrollToMessage(String? messageId) async {
@@ -319,73 +377,99 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
 
   void _highlightMessage(String messageId) {
     _highlightTimer?.cancel();
+    _messageKeys.putIfAbsent(messageId, GlobalKey.new);
+    _pruneMessageKeys(keepMessageId: messageId);
     setState(() => _highlightedMessageId = messageId);
     _highlightTimer = Timer(const Duration(milliseconds: 1400), () {
       if (mounted && _highlightedMessageId == messageId) {
-        setState(() => _highlightedMessageId = null);
+        setState(() {
+          _highlightedMessageId = null;
+          _pruneMessageKeys();
+        });
       }
     });
   }
 
-  void _applyStatus(MessageStatusUpdate status) {
+  bool _applyStatus(MessageStatusUpdate status) {
+    var changed = false;
     final ids = status.messageIds.isEmpty
         ? [status.messageId]
         : status.messageIds;
     for (final id in ids) {
       final index = _messages.indexWhere((m) => m.id == id);
       if (index == -1) continue;
+      if (_messages[index].deliveryState == status.deliveryState) continue;
       _messages[index] = _messages[index].copyWith(
         deliveryState: status.deliveryState,
       );
+      changed = true;
     }
+    return changed;
   }
 
-  void _applyEdit(Map<String, dynamic> data) {
+  bool _applyEdit(Map<String, dynamic> data) {
     final index = _messages.indexWhere(
       (m) => m.id == data['message_id']?.toString(),
     );
-    if (index == -1) return;
+    if (index == -1) return false;
+    final nextText = data['new_content']?.toString() ?? _messages[index].text;
+    final nextEditedAt =
+        DateTime.tryParse(data['edited_at']?.toString() ?? '')?.toLocal() ??
+        DateTime.now();
+    if (_messages[index].text == nextText &&
+        _messages[index].editedAt == nextEditedAt) {
+      return false;
+    }
     _messages[index] = _messages[index].copyWith(
-      text: data['new_content']?.toString() ?? _messages[index].text,
-      editedAt:
-          DateTime.tryParse(data['edited_at']?.toString() ?? '')?.toLocal() ??
-          DateTime.now(),
+      text: nextText,
+      editedAt: nextEditedAt,
     );
+    return true;
   }
 
-  void _applyDelete(Map<String, dynamic> data) {
+  bool _applyDelete(Map<String, dynamic> data) {
     final index = _messages.indexWhere(
       (m) => m.id == data['message_id']?.toString(),
     );
-    if (index == -1) return;
+    if (index == -1) return false;
+    if (_messages[index].isDeletedForEveryone &&
+        _messages[index].text.isEmpty &&
+        (_messages[index].fileUrl == null || _messages[index].fileUrl == '')) {
+      return false;
+    }
     _messages[index] = _messages[index].copyWith(
       text: '',
       isDeletedForEveryone: true,
       fileUrl: '',
     );
+    _pruneMessageKeys();
+    return true;
   }
 
-  void _applyReaction(Map<String, dynamic> data) {
+  bool _applyReaction(Map<String, dynamic> data) {
     final index = _messages.indexWhere(
       (m) => m.id == data['message_id']?.toString(),
     );
-    if (index == -1) return;
+    if (index == -1) return false;
     final emoji = data['emoji']?.toString();
     final userId = data['user_id']?.toString();
-    if (emoji == null || userId == null) return;
+    if (emoji == null || userId == null) return false;
     final reactions = Map<String, List<String>>.from(
       _messages[index].reactions.map(
         (key, value) => MapEntry(key, List<String>.from(value)),
       ),
     );
     if (data['action'] == 'remove') {
+      if (!(reactions[emoji]?.contains(userId) ?? false)) return false;
       reactions[emoji]?.remove(userId);
       if (reactions[emoji]?.isEmpty ?? false) reactions.remove(emoji);
     } else {
       reactions.putIfAbsent(emoji, () => []);
+      if (reactions[emoji]!.contains(userId)) return false;
       if (!reactions[emoji]!.contains(userId)) reactions[emoji]!.add(userId);
     }
     _messages[index] = _messages[index].copyWith(reactions: reactions);
+    return true;
   }
 
   void _onTextChanged(String val) {
@@ -552,6 +636,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
           deliveryState: DeliveryState.pending,
         ),
       );
+      _pruneMessageKeys();
     });
     _scrollToBottom();
 
@@ -567,7 +652,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
         _chatViewModel.setActiveChat(_currentChatId);
         SocketService().setActiveChatId(_currentChatId);
       }
-      if (mounted) setState(() => _upsertMessage(message));
+      if (mounted) {
+        final changed = _upsertMessage(message);
+        if (changed) setState(() {});
+      }
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -609,6 +697,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
             deliveryState: DeliveryState.pending,
           ),
         );
+        _pruneMessageKeys();
       });
       _scrollToBottom();
     }
@@ -953,6 +1042,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     );
   }
 
+  void _showReactionUsers(String emoji, List<String> userIds) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('$emoji: ${userIds.join(', ')}')));
+  }
+
   Future<void> _deleteMessage(Message message, String deleteType) async {
     try {
       await _apiService.deleteMessage(message.id, deleteType);
@@ -962,12 +1057,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
         if (index == -1) return;
         if (deleteType == 'for_me') {
           _messages.removeAt(index);
+          _pruneMessageKeys();
         } else {
           _messages[index] = _messages[index].copyWith(
             text: '',
             isDeletedForEveryone: true,
             fileUrl: '',
           );
+          _pruneMessageKeys(keepMessageId: message.id);
         }
       });
     } on ApiException catch (e) {
@@ -1087,15 +1184,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
         l.endsWith('.webp');
   }
 
-  bool _isAudioUrl(String url) {
-    final l = url.toLowerCase().split('?').first;
-    return l.endsWith('.mp3') ||
-        l.endsWith('.m4a') ||
-        l.endsWith('.ogg') ||
-        l.endsWith('.aac') ||
-        l.endsWith('.wav');
-  }
-
   bool _isVideoUrl(String url) {
     final l = url.toLowerCase().split('?').first;
     return l.endsWith('.mp4') ||
@@ -1104,12 +1192,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
         l.endsWith('.mkv') ||
         l.endsWith('.3gp') ||
         l.endsWith('.webm');
-  }
-
-  String _formatRecordingTime(Duration d) {
-    final m = d.inMinutes.toString().padLeft(2, '0');
-    final s = (d.inSeconds % 60).toString().padLeft(2, '0');
-    return '$m:$s';
   }
 
   // ── build ─────────────────────────────────────────────────────
@@ -1294,243 +1376,20 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   }
 
   Widget _buildChatArea() {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.chatBackgroundColor,
-        image: const DecorationImage(
-          image: CachedNetworkImageProvider(
-            'https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png',
-          ),
-          fit: BoxFit.cover,
-          opacity: 0.15,
-        ),
-      ),
-      child: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _messages.isEmpty
-          ? const Center(
-              child: Text(
-                'No messages yet',
-                style: TextStyle(color: Colors.grey),
-              ),
-            )
-          : ListView.builder(
-              controller: _scrollController,
-              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-              reverse: true,
-              addAutomaticKeepAlives: false,
-              itemCount: _messages.length,
-              itemBuilder: (context, index) {
-                final message = _messages[index];
-                final showDate =
-                    index == _messages.length - 1 ||
-                    !_isSameDay(message.time, _messages[index + 1].time);
-                final isHighlighted = _highlightedMessageId == message.id;
-                final cacheKey = '${message.id}_${isHighlighted}_$showDate';
-
-                return _messageWidgetCache.putIfAbsent(cacheKey, () {
-                  return Column(
-                    children: [
-                      if (showDate) _buildDateChip(message.time),
-                      RepaintBoundary(
-                        key: _messageKey(message.id),
-                        child: _buildMessage(message),
-                      ),
-                    ],
-                  );
-                });
-              },
-            ),
+    return MessageList(
+      messages: _messages,
+      isLoading: _isLoading,
+      scrollController: _scrollController,
+      highlightedMessageId: _highlightedMessageId,
+      targetKeyForId: _messageTargetKey,
+      downloadedUrls: _downloadedUrls,
+      onLongPressMessage: _showMessageOptions,
+      onReplyTap: _scrollToMessage,
+      onOpenMediaPreview: _openMediaPreview,
+      onDownloadImage: _downloadAndSaveImage,
+      onOpenFile: _openFile,
+      onShowReactionUsers: _showReactionUsers,
     );
-  }
-
-  bool _isSameDay(DateTime a, DateTime b) {
-    return a.year == b.year && a.month == b.month && a.day == b.day;
-  }
-
-  Widget _buildDateChip(DateTime date) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final yesterday = today.subtract(const Duration(days: 1));
-    final d = DateTime(date.year, date.month, date.day);
-    final String label;
-    if (d == today) {
-      label = 'Today';
-    } else if (d == yesterday) {
-      label = 'Yesterday';
-    } else {
-      label = DateFormat('MMMM d, y').format(date);
-    }
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Center(
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-          decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Text(
-            label,
-            style: const TextStyle(
-              fontSize: 12,
-              color: Colors.black54,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildMessage(Message message) {
-    final isMe = message.isMe;
-    final hasFile = message.fileUrl != null && message.fileUrl!.isNotEmpty;
-    final url = message.fileUrl ?? '';
-    final isImage = hasFile && (message.type == 'image' || _isImageUrl(url));
-    final isAudio = hasFile && (message.type == 'audio' || _isAudioUrl(url));
-    final isVideo = hasFile && (message.type == 'video' || _isVideoUrl(url));
-    final isDocument = hasFile && !isImage && !isAudio && !isVideo;
-    final isDeleted = message.isDeletedForEveryone;
-    final isHighlighted = _highlightedMessageId == message.id;
-
-    return GestureDetector(
-      onLongPress: () => _showMessageOptions(message),
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 2),
-        alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(maxWidth: Responsive.bubbleMaxWidth),
-          child: Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: isHighlighted
-                  ? const Color(0xFFFFF2A8)
-                  : isMe
-                  ? AppColors.outgoingMessageColor
-                  : Colors.white,
-              borderRadius: isMe
-                  ? const BorderRadius.only(
-                      topLeft: Radius.circular(12),
-                      topRight: Radius.circular(12),
-                      bottomLeft: Radius.circular(12),
-                      bottomRight: Radius.circular(3),
-                    )
-                  : const BorderRadius.only(
-                      topLeft: Radius.circular(3),
-                      topRight: Radius.circular(12),
-                      bottomLeft: Radius.circular(12),
-                      bottomRight: Radius.circular(12),
-                    ),
-              boxShadow: [
-                BoxShadow(
-                  color: isHighlighted
-                      ? AppColors.primaryColor.withValues(alpha: 0.22)
-                      : Colors.black.withValues(alpha: 0.06),
-                  blurRadius: isHighlighted ? 8 : 2,
-                  offset: Offset(0, isHighlighted ? 2 : 1),
-                ),
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (isDeleted)
-                  Text(
-                    '🚫 This message was deleted',
-                    style: TextStyle(
-                      color: Colors.grey[600],
-                      fontStyle: FontStyle.italic,
-                      fontSize: 14,
-                    ),
-                  ),
-                if (!isDeleted && message.replyToId != null)
-                  _buildReplyQuote(message, isMe),
-                if (!isDeleted && message.isForwarded) _buildForwardedLabel(),
-                if (!isDeleted && isImage) _buildImageContent(message),
-                if (!isDeleted && isVideo) _buildVideoContent(message),
-                if (!isDeleted && isAudio) _buildAudioContent(message, isMe),
-                if (!isDeleted && isDocument) _buildDocumentContent(message),
-                if (!isDeleted &&
-                    message.text.isNotEmpty &&
-                    message.text != '[File]') ...[
-                  if (hasFile) const SizedBox(height: 4),
-                  Text(
-                    message.text,
-                    style: const TextStyle(color: Colors.black87, fontSize: 15),
-                  ),
-                ],
-                const SizedBox(height: 2),
-                _buildTimestampRow(message, isMe),
-                if (message.reactions.isNotEmpty) _buildReactions(message),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildReplyQuote(Message message, bool isMe) {
-    return InkWell(
-      onTap: () => _scrollToMessage(message.replyToId),
-      borderRadius: BorderRadius.circular(6),
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 6),
-        padding: const EdgeInsets.fromLTRB(8, 5, 8, 5),
-        decoration: BoxDecoration(
-          color: isMe
-              ? Colors.white.withValues(alpha: 0.45)
-              : Colors.grey.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(6),
-          border: const Border(
-            left: BorderSide(color: AppColors.primaryColor, width: 3),
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Flexible(
-              child: Text(
-                _replySummary(
-                  text: message.replyToText,
-                  type: message.replyToType,
-                  fileName: message.replyToFileName,
-                ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey[700],
-                  fontStyle: FontStyle.italic,
-                ),
-              ),
-            ),
-            if (_hasReplyMedia(message)) ...[
-              const SizedBox(width: 8),
-              _buildReplyMediaThumb(
-                type: message.replyToType,
-                fileUrl: message.replyToFileUrl,
-                thumbnailUrl: message.replyToThumbnailUrl,
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  bool _hasReplyMedia(Message message) {
-    return (message.replyToFileUrl != null &&
-            message.replyToFileUrl!.isNotEmpty) ||
-        (message.replyToThumbnailUrl != null &&
-            message.replyToThumbnailUrl!.isNotEmpty) ||
-        message.replyToType == 'image' ||
-        message.replyToType == 'video' ||
-        message.replyToType == 'audio' ||
-        message.replyToType == 'document';
   }
 
   String _replySummary({
@@ -1593,6 +1452,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
             imageUrl: imageUrl,
             width: 44,
             height: 44,
+            memCacheWidth: 88,
+            memCacheHeight: 88,
             fit: BoxFit.cover,
             errorWidget: (context, url, error) => _replyIcon(fallbackType),
           ),
@@ -1655,590 +1516,82 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     );
   }
 
-  Widget _buildForwardedLabel() {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: const [
-          Icon(Icons.reply, size: 13, color: Colors.black45),
-          SizedBox(width: 4),
-          Text(
-            'Forwarded',
-            style: TextStyle(
-              fontSize: 11,
-              color: Colors.black45,
-              fontStyle: FontStyle.italic,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildImageContent(Message message) {
-    final imageUrl = ApiService.mediaUrl(message.fileUrl);
-    return GestureDetector(
-      onTap: () => _openMediaPreview(message),
-      child: Stack(
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: Hero(
-              tag: 'media-${message.id}',
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(
-                  minWidth: 180,
-                  maxWidth: 260,
-                  minHeight: 140,
-                  maxHeight: 320,
-                ),
-                child: CachedNetworkImage(
-                  imageUrl: imageUrl,
-                  fit: BoxFit.cover,
-                  placeholder: (context, url) =>
-                      Container(width: 220, height: 180, color: Colors.black12),
-                  errorWidget: (context, url, error) =>
-                      const Icon(Icons.broken_image, size: 48),
-                ),
-              ),
-            ),
-          ),
-          if (!_downloadedUrls.contains(message.fileUrl!))
-            Positioned(
-              right: 4,
-              bottom: 4,
-              child: GestureDetector(
-                onTap: () => _downloadAndSaveImage(message.fileUrl!),
-                child: Container(
-                  padding: const EdgeInsets.all(4),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.5),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.download,
-                    size: 16,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildVideoContent(Message message) {
-    return GestureDetector(
-      onTap: () => _openMediaPreview(message),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(8),
-        child: Container(
-          width: 220,
-          height: 130,
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Color(0xFF1a1a2e), Color(0xFF16213e)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: const [
-              Icon(Icons.play_circle_fill, color: Colors.white, size: 48),
-              SizedBox(height: 6),
-              Text(
-                'Tap to play',
-                style: TextStyle(color: Colors.white70, fontSize: 12),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAudioContent(Message message, bool isMe) {
-    return AudioPlayerWidget(url: message.fileUrl!, isMe: isMe);
-  }
-
-  Widget _buildDocumentContent(Message message) {
-    final fileName =
-        message.fileName ?? message.fileUrl!.split('/').last.split('?').first;
-    return InkWell(
-      onTap: () => _openFile(message.fileUrl!),
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        decoration: BoxDecoration(
-          color: Colors.grey.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.insert_drive_file,
-              color: AppColors.primaryColor,
-              size: 28,
-            ),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                fileName,
-                style: const TextStyle(
-                  color: AppColors.primaryColor,
-                  fontSize: 13,
-                  decoration: TextDecoration.underline,
-                ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTimestampRow(Message message, bool isMe) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      mainAxisAlignment: MainAxisAlignment.end,
-      children: [
-        if (message.editedAt != null) ...[
-          const Text(
-            'edited',
-            style: TextStyle(color: Colors.black45, fontSize: 11),
-          ),
-          const SizedBox(width: 4),
-        ],
-        Text(
-          DateFormat('hh:mm a').format(message.time.toLocal()),
-          style: const TextStyle(color: Colors.black45, fontSize: 11),
-        ),
-        if (isMe) ...[
-          const SizedBox(width: 3),
-          _buildTick(message.deliveryState),
-        ],
-      ],
-    );
-  }
-
-  Widget _buildReactions(Message message) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 4),
-      child: Wrap(
-        spacing: 4,
-        runSpacing: 4,
-        children: message.reactions.entries.map((entry) {
-          return GestureDetector(
-            onTap: () {
-              final users = entry.value.join(', ');
-              ScaffoldMessenger.of(
-                context,
-              ).showSnackBar(SnackBar(content: Text('${entry.key}: $users')));
-            },
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.75),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.black12),
-              ),
-              child: Text(
-                '${entry.key} ${entry.value.length}',
-                style: const TextStyle(fontSize: 12),
-              ),
-            ),
-          );
-        }).toList(),
-      ),
-    );
-  }
-
-  Widget _buildTick(MessageStatus state) {
-    switch (state) {
-      case MessageStatus.sending:
-        return const Icon(Icons.access_time, size: 13, color: Colors.black38);
-      case MessageStatus.sent:
-        return const Icon(Icons.check, size: 13, color: Colors.black38);
-      case MessageStatus.delivered:
-        return const Icon(Icons.done_all, size: 13, color: Colors.black38);
-      case MessageStatus.read:
-        return const Icon(Icons.done_all, size: 13, color: Color(0xFF4FC3F7));
-      case MessageStatus.failed:
-        return const Icon(Icons.error_outline, size: 13, color: Colors.red);
-    }
-  }
-
   // ── composer ─────────────────────────────────────────────────
 
   Widget _buildComposerArea() {
-    if (_isLocked) {
-      return SafeArea(
-        top: false,
-        left: false,
-        right: false,
-        bottom: true,
-        child: _buildLockedRecordingUI(),
-      );
+    return ChatInputBar(
+      messageController: _messageController,
+      focusNode: _focusNode,
+      showEmojiPicker: _showEmojiPicker,
+      showSendIcon: _showSendIcon,
+      isRecording: _isRecording,
+      isLocked: _isLocked,
+      isCancelling: _isCancelling,
+      recordingDuration: _recordingDuration,
+      recordingCurrentOffset: _recordingCurrentOffset,
+      blinkAnimation: _blinkAnimation,
+      pulseAnimation: _pulseAnimation,
+      replyingToMessage: _replyingToMessage,
+      replyAuthorName: widget.chat.name,
+      replySummaryBuilder: (message) => _replySummary(
+        text: message.text,
+        type: message.type,
+        fileName: message.fileName,
+      ),
+      replyMediaThumbBuilder: (message) => _buildReplyMediaThumb(
+        type: message.type,
+        fileUrl: message.fileUrl,
+        thumbnailUrl: message.thumbnailUrl,
+      ),
+      onTextChanged: _onTextChanged,
+      onToggleEmojiPicker: _toggleEmojiPicker,
+      onShowAttachmentOptions: _showAttachmentOptions,
+      onOpenCamera: () => _pickImage(ImageSource.camera),
+      onCancelReply: () => setState(() => _replyingToMessage = null),
+      onSendMessage: _sendMessage,
+      onStartRecordingPointerDown: _handleRecordingPointerDown,
+      onRecordingPointerMove: _handleRecordingPointerMove,
+      onRecordingPointerUp: _handleRecordingPointerUp,
+      onCancelLockedRecording: () {
+        HapticFeedback.lightImpact();
+        _cancelRecording();
+      },
+      onStopRecording: _stopRecording,
+    );
+  }
+
+  void _handleRecordingPointerDown(PointerDownEvent event) {
+    _recordingCurrentOffset.value = Offset.zero;
+    setState(() {
+      _recordingStartPos = event.position;
+      _isCancelling = false;
+    });
+    _startRecording();
+  }
+
+  void _handleRecordingPointerMove(PointerMoveEvent event) {
+    final offset = event.position - _recordingStartPos;
+    _recordingCurrentOffset.value = offset;
+    if (offset.dx < -100) {
+      HapticFeedback.lightImpact();
+      _cancelRecording();
+    } else if (offset.dy < -120) {
+      _lockRecording();
+    } else if (offset.dx < -60) {
+      if (!_isCancelling) setState(() => _isCancelling = true);
+    } else {
+      if (_isCancelling) setState(() => _isCancelling = false);
     }
-    return SafeArea(
-      top: false,
-      left: false,
-      right: false,
-      bottom: true,
-      child: Container(
-        color: const Color(0xFFF0F0F0),
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (_replyingToMessage != null) _buildReplyPreview(),
-            _buildInputRow(),
-          ],
-        ),
-      ),
-    );
   }
 
-  Widget _buildReplyPreview() {
-    final msg = _replyingToMessage!;
-    return Container(
-      margin: const EdgeInsets.only(bottom: 4),
-      padding: const EdgeInsets.fromLTRB(10, 6, 6, 6),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
-        border: const Border(
-          left: BorderSide(color: AppColors.primaryColor, width: 4),
-        ),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  msg.isMe ? 'You' : widget.chat.name,
-                  style: const TextStyle(
-                    color: AppColors.primaryColor,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 13,
-                  ),
-                ),
-                Text(
-                  _replySummary(
-                    text: msg.text,
-                    type: msg.type,
-                    fileName: msg.fileName,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 13, color: Colors.grey),
-                ),
-              ],
-            ),
-          ),
-          if (msg.fileUrl != null && msg.fileUrl!.isNotEmpty) ...[
-            const SizedBox(width: 8),
-            _buildReplyMediaThumb(
-              type: msg.type,
-              fileUrl: msg.fileUrl,
-              thumbnailUrl: msg.thumbnailUrl,
-            ),
-          ],
-          IconButton(
-            icon: const Icon(Icons.close, size: 18),
-            onPressed: () => setState(() => _replyingToMessage = null),
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildInputRow() {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        Expanded(
-          child: Container(
-            constraints: const BoxConstraints(maxHeight: 120),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(24),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                if (!_isRecording)
-                  Padding(
-                    padding: const EdgeInsets.only(left: 4, bottom: 4),
-                    child: IconButton(
-                      icon: Icon(
-                        _showEmojiPicker
-                            ? Icons.keyboard_alt_outlined
-                            : Icons.emoji_emotions_outlined,
-                        color: Colors.grey[600],
-                      ),
-                      onPressed: _toggleEmojiPicker,
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(
-                        minWidth: 36,
-                        minHeight: 36,
-                      ),
-                    ),
-                  ),
-                Expanded(
-                  child: _isRecording
-                      ? Padding(
-                          padding: const EdgeInsets.symmetric(
-                            vertical: 12,
-                            horizontal: 8,
-                          ),
-                          child: Row(
-                            children: [
-                              AnimatedBuilder(
-                                animation: _blinkAnimation,
-                                builder: (context, _) => Opacity(
-                                  opacity: _blinkAnimation.value,
-                                  child: const Icon(
-                                    Icons.fiber_manual_record,
-                                    color: Colors.red,
-                                    size: 14,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                _formatRecordingTime(_recordingDuration),
-                                style: const TextStyle(
-                                  color: Colors.red,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 15,
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  _isCancelling
-                                      ? 'Release to cancel'
-                                      : '< Slide to cancel',
-                                  style: TextStyle(
-                                    color: _isCancelling
-                                        ? Colors.red
-                                        : Colors.grey,
-                                    fontSize: 13,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ],
-                          ),
-                        )
-                      : TextField(
-                          controller: _messageController,
-                          focusNode: _focusNode,
-                          minLines: 1,
-                          maxLines: 6,
-                          textCapitalization: TextCapitalization.sentences,
-                          onChanged: _onTextChanged,
-                          decoration: const InputDecoration(
-                            hintText: 'Message',
-                            hintStyle: TextStyle(color: Colors.grey),
-                            border: InputBorder.none,
-                            contentPadding: EdgeInsets.symmetric(vertical: 10),
-                          ),
-                        ),
-                ),
-                if (!_isRecording) ...[
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
-                    child: IconButton(
-                      icon: Icon(Icons.attach_file, color: Colors.grey[600]),
-                      onPressed: _showAttachmentOptions,
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(
-                        minWidth: 36,
-                        minHeight: 36,
-                      ),
-                    ),
-                  ),
-                  if (!_showSendIcon)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 4, bottom: 4),
-                      child: IconButton(
-                        icon: Icon(Icons.camera_alt, color: Colors.grey[600]),
-                        onPressed: () => _pickImage(ImageSource.camera),
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(
-                          minWidth: 36,
-                          minHeight: 36,
-                        ),
-                      ),
-                    ),
-                ],
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(width: 6),
-        Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [_buildLockIndicatorAbove(), _buildMicSendButton()],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildLockIndicatorAbove() {
-    if (!_isRecording || _isLocked) return const SizedBox.shrink();
-    return ValueListenableBuilder<Offset>(
-      valueListenable: _recordingCurrentOffset,
-      builder: (context, offset, _) {
-        final lockProgress = (-offset.dy / 120.0).clamp(0.0, 1.0);
-        if (lockProgress <= 0.01) return const SizedBox.shrink();
-        return Opacity(
-          opacity: lockProgress,
-          child: Container(
-            width: 36,
-            height: 36,
-            margin: const EdgeInsets.only(bottom: 6),
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              shape: BoxShape.circle,
-              boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4)],
-            ),
-            child: Icon(
-              lockProgress > 0.75 ? Icons.lock : Icons.lock_open,
-              color: lockProgress > 0.75 ? AppColors.primaryColor : Colors.grey,
-              size: 18,
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildMicSendButton() {
-    return Listener(
-      onPointerDown: (event) {
-        if (_showSendIcon || _isRecording) return;
-        _recordingCurrentOffset.value = Offset.zero;
-        setState(() {
-          _recordingStartPos = event.position;
-          _isCancelling = false;
-        });
-        _startRecording();
-      },
-      onPointerMove: (event) {
-        if (!_isRecording || _isLocked) return;
-        final offset = event.position - _recordingStartPos;
-        _recordingCurrentOffset.value = offset;
-        if (offset.dx < -100) {
-          HapticFeedback.lightImpact();
-          _cancelRecording();
-        } else if (offset.dy < -120) {
-          _lockRecording();
-        } else if (offset.dx < -60) {
-          if (!_isCancelling) setState(() => _isCancelling = true);
-        } else {
-          if (_isCancelling) setState(() => _isCancelling = false);
-        }
-      },
-      onPointerUp: (event) {
-        if (!_isRecording || _isLocked) return;
-        final offset = event.position - _recordingStartPos;
-        if (offset.dx < -60 || _isCancelling) {
-          HapticFeedback.lightImpact();
-          _cancelRecording();
-        } else {
-          _stopRecording();
-        }
-      },
-      child: GestureDetector(
-        onTap: _showSendIcon ? _sendMessage : null,
-        child: _isRecording
-            ? AnimatedBuilder(
-                animation: _pulseAnimation,
-                builder: (context, child) => Transform.scale(
-                  scale: _pulseAnimation.value,
-                  child: const CircleAvatar(
-                    radius: 24,
-                    backgroundColor: Colors.red,
-                    child: Icon(Icons.mic, color: Colors.white, size: 22),
-                  ),
-                ),
-              )
-            : CircleAvatar(
-                radius: 24,
-                backgroundColor: AppColors.primaryColor,
-                child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 200),
-                  child: Icon(
-                    _showSendIcon ? Icons.send : Icons.mic,
-                    key: ValueKey(_showSendIcon),
-                    color: Colors.white,
-                    size: 22,
-                  ),
-                ),
-              ),
-      ),
-    );
-  }
-
-  Widget _buildLockedRecordingUI() {
-    return Container(
-      color: const Color(0xFFF0F0F0),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      child: Row(
-        children: [
-          IconButton(
-            onPressed: () {
-              HapticFeedback.lightImpact();
-              _cancelRecording();
-            },
-            icon: const Icon(Icons.delete_outline, color: Colors.red, size: 28),
-          ),
-          const SizedBox(width: 4),
-          AnimatedBuilder(
-            animation: _blinkAnimation,
-            builder: (context, _) => Opacity(
-              opacity: _blinkAnimation.value,
-              child: const Icon(
-                Icons.fiber_manual_record,
-                color: Colors.red,
-                size: 12,
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            _formatRecordingTime(_recordingDuration),
-            style: const TextStyle(
-              color: Colors.red,
-              fontWeight: FontWeight.bold,
-              fontSize: 15,
-            ),
-          ),
-          const Spacer(),
-          GestureDetector(
-            onTap: _stopRecording,
-            child: const CircleAvatar(
-              radius: 24,
-              backgroundColor: Color(0xFF4CAF50),
-              child: Icon(Icons.send, color: Colors.white, size: 22),
-            ),
-          ),
-        ],
-      ),
-    );
+  void _handleRecordingPointerUp(PointerUpEvent event) {
+    final offset = event.position - _recordingStartPos;
+    if (offset.dx < -60 || _isCancelling) {
+      HapticFeedback.lightImpact();
+      _cancelRecording();
+    } else {
+      _stopRecording();
+    }
   }
 
   void _toggleEmojiPicker() {
@@ -2448,158 +1801,6 @@ class _MediaPreviewScreenState extends State<MediaPreviewScreen> {
           ),
         );
       },
-    );
-  }
-}
-
-// ── AudioPlayerWidget ─────────────────────────────────────────
-
-class AudioPlayerWidget extends StatefulWidget {
-  final String url;
-  final bool isMe;
-  const AudioPlayerWidget({super.key, required this.url, this.isMe = false});
-
-  @override
-  State<AudioPlayerWidget> createState() => _AudioPlayerWidgetState();
-}
-
-class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
-  final AudioPlayer _player = AudioPlayer();
-  bool _isPlaying = false;
-  bool _isLoading = true;
-  Duration _duration = Duration.zero;
-  Duration _position = Duration.zero;
-
-  @override
-  void initState() {
-    super.initState();
-    _player
-        .setSource(UrlSource(widget.url))
-        .then((_) async {
-          final d = await _player.getDuration();
-          if (mounted) {
-            setState(() {
-              if (d != null) _duration = d;
-              _isLoading = false;
-            });
-          }
-        })
-        .catchError((e) {
-          if (mounted) setState(() => _isLoading = false);
-        });
-    _player.onDurationChanged.listen((d) {
-      if (mounted) setState(() => _duration = d);
-    });
-    _player.onPositionChanged.listen((p) {
-      if (mounted) setState(() => _position = p);
-    });
-    _player.onPlayerComplete.listen((_) {
-      if (mounted) {
-        setState(() {
-          _isPlaying = false;
-          _position = Duration.zero;
-        });
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _player.dispose();
-    super.dispose();
-  }
-
-  String _fmt(Duration d) {
-    final m = d.inMinutes.toString().padLeft(1, '0');
-    final s = (d.inSeconds % 60).toString().padLeft(2, '0');
-    return '$m:$s';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final sliderValue = (_duration.inMilliseconds > 0)
-        ? (_position.inMilliseconds / _duration.inMilliseconds).clamp(0.0, 1.0)
-        : 0.0;
-
-    return SizedBox(
-      width: 220,
-      child: Row(
-        children: [
-          GestureDetector(
-            onTap: () async {
-              if (_isLoading) return;
-              try {
-                if (_isPlaying) {
-                  await _player.pause();
-                  setState(() => _isPlaying = false);
-                } else {
-                  if (_position == _duration && _duration != Duration.zero) {
-                    await _player.seek(Duration.zero);
-                  }
-                  await _player.resume();
-                  setState(() => _isPlaying = true);
-                }
-              } catch (e) {
-                debugPrint('Audio error: $e');
-              }
-            },
-            child: CircleAvatar(
-              radius: 18,
-              backgroundColor: AppColors.primaryColor,
-              child: _isLoading
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : Icon(
-                      _isPlaying ? Icons.pause : Icons.play_arrow,
-                      color: Colors.white,
-                      size: 20,
-                    ),
-            ),
-          ),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                SliderTheme(
-                  data: SliderTheme.of(context).copyWith(
-                    thumbShape: const RoundSliderThumbShape(
-                      enabledThumbRadius: 5,
-                    ),
-                    trackHeight: 2.5,
-                    overlayShape: const RoundSliderOverlayShape(
-                      overlayRadius: 10,
-                    ),
-                  ),
-                  child: Slider(
-                    value: sliderValue,
-                    onChanged: (v) {
-                      final pos = Duration(
-                        milliseconds: (v * _duration.inMilliseconds).round(),
-                      );
-                      _player.seek(pos);
-                    },
-                    activeColor: AppColors.primaryColor,
-                    inactiveColor: Colors.grey[300],
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.only(left: 8),
-                  child: Text(
-                    _isPlaying ? _fmt(_position) : _fmt(_duration),
-                    style: const TextStyle(fontSize: 10, color: Colors.black54),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

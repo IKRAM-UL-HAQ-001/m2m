@@ -12,6 +12,9 @@ class ChatViewModel extends ChangeNotifier {
   String? _activeChatId;
   StreamSubscription<Message>? _socketSubscription;
   StreamSubscription<MessageStatusUpdate>? _statusSubscription;
+  final Set<String> _recentMessageEventKeys = {};
+  final List<String> _recentMessageEventOrder = [];
+  static const int _maxRecentMessageEvents = 200;
 
   List<Chat> get chats => _chats;
   bool get isLoading => _isLoading;
@@ -37,6 +40,8 @@ class ChatViewModel extends ChangeNotifier {
       _activeChatId = null;
       _chats = [];
       _isLoading = false;
+      _recentMessageEventKeys.clear();
+      _recentMessageEventOrder.clear();
       notifyListeners();
       return;
     }
@@ -53,25 +58,12 @@ class ChatViewModel extends ChangeNotifier {
     if (index == -1 || _chats[index].unreadCount == 0) return;
 
     final chat = _chats[index];
-    _chats[index] = Chat(
-      id: chat.id,
-      receiverId: chat.receiverId,
-      name: chat.name,
-      phone: chat.phone,
-      about: chat.about,
-      avatarUrl: chat.avatarUrl,
-      lastMessage: chat.lastMessage,
-      lastMessageType: chat.lastMessageType,
-      lastMessageStatus: chat.lastMessageStatus,
-      lastMessageFileUrl: chat.lastMessageFileUrl,
-      time: chat.time,
-      unreadCount: 0,
-      isOnline: chat.isOnline,
-    );
+    _chats[index] = chat.copyWith(unreadCount: 0);
     notifyListeners();
   }
 
   void _handleNewMessage(Message message) {
+    if (_isDuplicateMessageEvent(message)) return;
     // Find the chat and update its last message and unread count
     final index = _chats.indexWhere((c) => c.id == message.chatId);
     if (index != -1) {
@@ -79,24 +71,30 @@ class ChatViewModel extends ChangeNotifier {
       final nextUnreadCount = message.chatId == _activeChatId
           ? 0
           : (message.isMe ? chat.unreadCount : chat.unreadCount + 1);
-      _chats[index] = Chat(
+      final updatedChat = chat.copyWith(
         id: message.chatId, // Update the ID too, in case it was a placeholder
-        receiverId: chat.receiverId,
-        name: chat.name,
-        phone: chat.phone,
-        about: chat.about,
-        avatarUrl: chat.avatarUrl,
         lastMessage: message.text,
         lastMessageType: message.type,
         lastMessageStatus: message.deliveryState,
         lastMessageFileUrl: message.fileUrl,
         time: message.time,
         unreadCount: nextUnreadCount,
-        isOnline: chat.isOnline,
       );
+      final isAlreadyTop = index == 0;
+      final hasVisibleChange =
+          chat.id != updatedChat.id ||
+          chat.lastMessage != updatedChat.lastMessage ||
+          chat.lastMessageType != updatedChat.lastMessageType ||
+          chat.lastMessageStatus != updatedChat.lastMessageStatus ||
+          chat.lastMessageFileUrl != updatedChat.lastMessageFileUrl ||
+          chat.time != updatedChat.time ||
+          chat.unreadCount != updatedChat.unreadCount ||
+          !isAlreadyTop;
+      if (!hasVisibleChange) return;
+      _chats[index] = updatedChat;
       // Move to top
-      final updatedChat = _chats.removeAt(index);
-      _chats.insert(0, updatedChat);
+      final movedChat = _chats.removeAt(index);
+      _chats.insert(0, movedChat);
       notifyListeners();
     } else {
       // If the chat is not in the list (e.g. brand new), fetch all chats to refresh state
@@ -129,23 +127,22 @@ class ChatViewModel extends ChangeNotifier {
     final index = _chats.indexWhere((c) => c.id == status.chatId);
     if (index != -1) {
       final chat = _chats[index];
-      _chats[index] = Chat(
-        id: chat.id,
-        receiverId: chat.receiverId,
-        name: chat.name,
-        phone: chat.phone,
-        about: chat.about,
-        avatarUrl: chat.avatarUrl,
-        lastMessage: chat.lastMessage,
-        lastMessageType: chat.lastMessageType,
-        lastMessageStatus: status.deliveryState,
-        lastMessageFileUrl: chat.lastMessageFileUrl,
-        time: chat.time,
-        unreadCount: chat.unreadCount,
-        isOnline: chat.isOnline,
-      );
+      if (chat.lastMessageStatus == status.deliveryState) return;
+      _chats[index] = chat.copyWith(lastMessageStatus: status.deliveryState);
       notifyListeners();
     }
+  }
+
+  bool _isDuplicateMessageEvent(Message message) {
+    final key = '${message.chatId}:${message.clientUuid}:${message.id}';
+    if (_recentMessageEventKeys.contains(key)) return true;
+    _recentMessageEventKeys.add(key);
+    _recentMessageEventOrder.add(key);
+    if (_recentMessageEventOrder.length > _maxRecentMessageEvents) {
+      final oldest = _recentMessageEventOrder.removeAt(0);
+      _recentMessageEventKeys.remove(oldest);
+    }
+    return false;
   }
 
   @override

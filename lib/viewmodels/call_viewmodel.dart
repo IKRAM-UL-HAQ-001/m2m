@@ -46,7 +46,9 @@ class CallViewModel extends ChangeNotifier {
   bool _isConnecting = false;
   bool _isLoadingHistory = false;
   String? _errorMessage;
-  Duration _callDuration = Duration.zero;
+  final ValueNotifier<Duration> callDurationNotifier = ValueNotifier<Duration>(
+    Duration.zero,
+  );
   Timer? _durationTimer;
   String? _connectingLiveKitCallId;
   String? _connectedLiveKitCallId;
@@ -86,7 +88,7 @@ class CallViewModel extends ChangeNotifier {
   bool get isConnecting => _isConnecting;
   bool get isLoadingHistory => _isLoadingHistory;
   String? get errorMessage => _errorMessage;
-  Duration get callDuration => _callDuration;
+  Duration get callDuration => callDurationNotifier.value;
   bool get isIncoming => _currentState == CallState.incoming;
   bool get hasActiveSession => _currentCall != null;
   bool get canStartCall =>
@@ -104,9 +106,10 @@ class CallViewModel extends ChangeNotifier {
       'liveKit=${_liveKitService.diagnosticState}';
 
   String get formattedDuration {
-    final hours = _callDuration.inHours;
-    final minutes = (_callDuration.inMinutes % 60).toString().padLeft(2, '0');
-    final seconds = (_callDuration.inSeconds % 60).toString().padLeft(2, '0');
+    final duration = callDuration;
+    final hours = duration.inHours;
+    final minutes = (duration.inMinutes % 60).toString().padLeft(2, '0');
+    final seconds = (duration.inSeconds % 60).toString().padLeft(2, '0');
     if (hours > 0) return '$hours:$minutes:$seconds';
     return '$minutes:$seconds';
   }
@@ -470,7 +473,7 @@ class CallViewModel extends ChangeNotifier {
     _isVideoEnabled = false;
     _isConnecting = false;
     _errorMessage = null;
-    _callDuration = Duration.zero;
+    _setCallDuration(Duration.zero);
     _connectedLiveKitCallId = null;
     _connectingLiveKitCallId = null;
     _acceptingCallId = null;
@@ -544,7 +547,7 @@ class CallViewModel extends ChangeNotifier {
   void _prepareNewCall(CallType callType) {
     _durationTimer?.cancel();
     _durationTimer = null;
-    _callDuration = Duration.zero;
+    _setCallDuration(Duration.zero);
     _isMuted = false;
     _isSpeakerOn = callType == CallType.video;
     _isVideoEnabled = callType == CallType.video;
@@ -565,9 +568,11 @@ class CallViewModel extends ChangeNotifier {
   void _finishCall(CallState state) {
     _durationTimer?.cancel();
     _durationTimer = null;
-    _callDuration = _currentCall?.durationSeconds != null
-        ? Duration(seconds: _currentCall!.durationSeconds)
-        : _callDuration;
+    _setCallDuration(
+      _currentCall?.durationSeconds != null
+          ? Duration(seconds: _currentCall!.durationSeconds)
+          : callDuration,
+    );
     if (_isTerminalState(state)) {
       NotificationService().dismissIncomingCall(_currentCall?.id);
       unawaited(_disconnectLiveKit());
@@ -867,14 +872,19 @@ class CallViewModel extends ChangeNotifier {
   void _startTimerFromCall(CallSession call) {
     _durationTimer?.cancel();
     final acceptedAt = call.acceptedAt;
-    _callDuration = acceptedAt == null
+    var duration = acceptedAt == null
         ? Duration.zero
         : DateTime.now().difference(acceptedAt);
-    if (_callDuration.isNegative) _callDuration = Duration.zero;
+    if (duration.isNegative) duration = Duration.zero;
+    _setCallDuration(duration);
     _durationTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      _callDuration += const Duration(seconds: 1);
-      notifyListeners();
+      _setCallDuration(callDuration + const Duration(seconds: 1));
     });
+  }
+
+  void _setCallDuration(Duration duration) {
+    if (callDurationNotifier.value == duration) return;
+    callDurationNotifier.value = duration;
   }
 
   void _setState(CallState state) {
@@ -987,6 +997,7 @@ class CallViewModel extends ChangeNotifier {
   @override
   void dispose() {
     _durationTimer?.cancel();
+    callDurationNotifier.dispose();
     _reconnectGraceTimer?.cancel();
     _terminalStateClearTimer?.cancel();
     _liveKitDisconnectSubscription?.cancel();

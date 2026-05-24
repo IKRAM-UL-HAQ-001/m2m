@@ -102,12 +102,17 @@ class _ActiveVideoCallScreenState extends State<ActiveVideoCallScreen> {
                         horizontal: 12,
                         vertical: 7,
                       ),
-                      child: Text(
-                        _statusText(vm),
-                        style: const TextStyle(
-                          color: AppColors.primaryColor,
-                          fontWeight: FontWeight.w600,
-                        ),
+                      child: ValueListenableBuilder<Duration>(
+                        valueListenable: vm.callDurationNotifier,
+                        builder: (context, duration, child) {
+                          return Text(
+                            _statusText(vm, duration),
+                            style: const TextStyle(
+                              color: AppColors.primaryColor,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          );
+                        },
                       ),
                     ),
                   ),
@@ -234,13 +239,13 @@ class _ActiveVideoCallScreenState extends State<ActiveVideoCallScreen> {
     );
   }
 
-  String _statusText(CallViewModel vm) {
+  String _statusText(CallViewModel vm, Duration duration) {
     return switch (vm.callState) {
       CallState.reconnecting => 'Reconnecting...',
       CallState.connecting => 'Connecting...',
       CallState.failed => 'Call failed',
       CallState.ended => 'Call ended',
-      _ => formatCallDuration(vm.callDuration),
+      _ => formatCallDuration(duration),
     };
   }
 }

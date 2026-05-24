@@ -72,6 +72,8 @@ class _ProfilePageState extends State<ProfilePage> {
                     backgroundImage: hasAvatar
                         ? CachedNetworkImageProvider(
                             ApiService.mediaUrl(widget.avatarUrl),
+                            maxWidth: 232,
+                            maxHeight: 232,
                           )
                         : null,
                     child: hasAvatar

@@ -50,6 +50,7 @@ class SocketService extends ChangeNotifier {
   StreamSubscription? _channelSubscription;
   Timer? _reconnectTimer;
   Timer? _heartbeatTimer;
+  DateTime? _lastPresenceHeartbeatAt;
   bool _shouldReconnect = true;
   int _reconnectAttempts = 0;
   static const int _maxReconnectAttempts = 10;
@@ -125,8 +126,19 @@ class SocketService extends ChangeNotifier {
     _heartbeatTimer = Timer.periodic(const Duration(seconds: 20), (_) async {
       try {
         _channel?.sink.add(jsonEncode({'event': 'heartbeat'}));
-        await _apiService.sendPresenceHeartbeat();
-      } catch (_) {}
+        final shouldSendPresence =
+            _lastPresenceHeartbeatAt == null ||
+            DateTime.now().difference(_lastPresenceHeartbeatAt!) >=
+                const Duration(minutes: 5);
+        if (shouldSendPresence) {
+          await _apiService.sendPresenceHeartbeat();
+          _lastPresenceHeartbeatAt = DateTime.now();
+        }
+      } catch (error) {
+        if (kDebugMode) {
+          debugPrint('Socket heartbeat failed: ${error.runtimeType}');
+        }
+      }
     });
   }
 
@@ -196,7 +208,11 @@ class SocketService extends ChangeNotifier {
       if (!message.isMe) {
         markDelivered([message.id]);
       }
-    } catch (_) {}
+    } catch (error) {
+      if (kDebugMode) {
+        debugPrint('Socket event parse failed: ${error.runtimeType}');
+      }
+    }
   }
 
   void sendChatOpened(String chatId) {

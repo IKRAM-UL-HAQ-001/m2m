@@ -159,6 +159,8 @@ class _ForwardContactPickerSheetState extends State<ForwardContactPickerSheet> {
                           backgroundImage: avatarUrl.isNotEmpty
                               ? CachedNetworkImageProvider(
                                   ApiService.mediaUrl(avatarUrl),
+                                  maxWidth: 96,
+                                  maxHeight: 96,
                                 )
                               : null,
                           child: avatarUrl.isEmpty

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/api_service.dart';
+import '../services/dio_client.dart';
 import '../services/notification_service.dart';
 import '../services/websocket_service.dart';
 
@@ -51,8 +52,12 @@ class AuthViewModel extends ChangeNotifier {
     debugPrint('[startup] auth check started');
     _isLoading = true;
     notifyListeners();
+    await TokenStorage.init();
     final prefs = await SharedPreferences.getInstance();
-    _isAuthenticated = prefs.getBool('isLoggedIn') ?? false;
+    _isAuthenticated =
+        (prefs.getBool('isLoggedIn') ?? false) &&
+        ((TokenStorage.accessTokenSync?.isNotEmpty ?? false) ||
+            (TokenStorage.refreshTokenSync?.isNotEmpty ?? false));
     ApiService.currentUserId = prefs.getString('user_id');
     if (!_isAuthenticated) {
       _socketService.disconnect();
@@ -105,8 +110,10 @@ class AuthViewModel extends ChangeNotifier {
     );
     if (result.containsKey('access')) {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('access_token', result['access']);
-      await prefs.setString('refresh_token', result['refresh']);
+      await TokenStorage.saveTokens(
+        access: result['access'].toString(),
+        refresh: result['refresh'].toString(),
+      );
       if (result['user'] != null) {
         final uid = result['user']['id'].toString();
         ApiService.currentUserId = uid;
@@ -177,8 +184,7 @@ class AuthViewModel extends ChangeNotifier {
   }
 
   Future<void> logout() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.clear();
+    await TokenStorage.clearAll();
     ApiService.currentUserId = null;
     _linkToken = null;
     _linkPollingTimer?.cancel();
@@ -215,8 +221,10 @@ class AuthViewModel extends ChangeNotifier {
         retries = 0;
         if (status['is_active'] == true) {
           final prefs = await SharedPreferences.getInstance();
-          await prefs.setString('access_token', status['access']);
-          await prefs.setString('refresh_token', status['refresh']);
+          await TokenStorage.saveTokens(
+            access: status['access'].toString(),
+            refresh: status['refresh'].toString(),
+          );
           if (status['user'] != null) {
             final uid = status['user']['id'].toString();
             ApiService.currentUserId = uid;
