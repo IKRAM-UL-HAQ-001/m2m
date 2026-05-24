@@ -327,7 +327,11 @@ class MessageTile extends StatelessWidget {
   }
 
   Widget _buildImageContent(Message message) {
-    final imageUrl = ApiService.mediaUrl(message.fileUrl);
+    final previewUrl =
+        message.thumbnailUrl != null && message.thumbnailUrl!.isNotEmpty
+        ? message.thumbnailUrl
+        : message.fileUrl;
+    final imageUrl = ApiService.mediaUrl(previewUrl);
     return GestureDetector(
       onTap: () => onOpenMediaPreview(message),
       child: Stack(
@@ -345,6 +349,8 @@ class MessageTile extends StatelessWidget {
                 ),
                 child: CachedNetworkImage(
                   imageUrl: imageUrl,
+                  memCacheWidth: 520,
+                  memCacheHeight: 640,
                   fit: BoxFit.cover,
                   placeholder: (context, url) =>
                       Container(width: 220, height: 180, color: Colors.black12),
