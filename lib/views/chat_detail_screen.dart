@@ -1293,8 +1293,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   }
 
   AppBar _buildAppBar() {
-    final callViewModel = context.watch<CallViewModel>();
-    final canStartCall = callViewModel.canStartCall;
     return AppBar(
       backgroundColor: AppColors.primaryColor,
       iconTheme: const IconThemeData(color: Colors.white),
@@ -1368,15 +1366,25 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
         ),
       ),
       actions: [
-        IconButton(
-          tooltip: 'Audio call',
-          icon: const Icon(Icons.call, color: Colors.white),
-          onPressed: canStartCall ? () => _startCall('audio') : null,
-        ),
-        IconButton(
-          tooltip: 'Video call',
-          icon: const Icon(Icons.videocam, color: Colors.white),
-          onPressed: canStartCall ? () => _startCall('video') : null,
+        Consumer<CallViewModel>(
+          builder: (_, callViewModel, _) {
+            final canStartCall = callViewModel.canStartCall;
+            return Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  tooltip: 'Audio call',
+                  icon: const Icon(Icons.call, color: Colors.white),
+                  onPressed: canStartCall ? () => _startCall('audio') : null,
+                ),
+                IconButton(
+                  tooltip: 'Video call',
+                  icon: const Icon(Icons.videocam, color: Colors.white),
+                  onPressed: canStartCall ? () => _startCall('video') : null,
+                ),
+              ],
+            );
+          },
         ),
       ],
     );
