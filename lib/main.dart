@@ -23,6 +23,7 @@ import 'views/calls/outgoing_call_screen.dart';
 import 'views/splash_screen.dart';
 
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'services/notification_service.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -30,6 +31,17 @@ final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 void main() async {
   debugPrint('[startup] main started');
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize Firebase and register FCM background handler early to handle background/killed notifications.
+  try {
+    debugPrint('[startup] Firebase early init started');
+    await Firebase.initializeApp();
+    debugPrint('[startup] Firebase early init completed');
+    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+    debugPrint('[startup] Background FCM handler registered in main');
+  } catch (e) {
+    debugPrint('[startup] Firebase early initialization skipped: $e');
+  }
 
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
