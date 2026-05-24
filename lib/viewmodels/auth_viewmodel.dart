@@ -16,6 +16,7 @@ class AuthViewModel extends ChangeNotifier {
   String? _linkToken;
   Timer? _linkPollingTimer;
   int _linkCountdown = 300;
+  bool _postStartupTasksStarted = false;
 
   bool get isAuthenticated => _isAuthenticated;
   bool get isLoading => _isLoading;
@@ -70,7 +71,8 @@ class AuthViewModel extends ChangeNotifier {
   }
 
   Future<void> runPostStartupTasks() async {
-    if (!_isAuthenticated) return;
+    if (!_isAuthenticated || _postStartupTasksStarted) return;
+    _postStartupTasksStarted = true;
     try {
       await _socketService.connect();
     } catch (e) {
@@ -188,6 +190,7 @@ class AuthViewModel extends ChangeNotifier {
     ApiService.currentUserId = null;
     _linkToken = null;
     _linkPollingTimer?.cancel();
+    _postStartupTasksStarted = false;
     _isAuthenticated = false;
     _socketService.disconnect();
     notifyListeners();

@@ -31,6 +31,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _loadProfile() async {
     final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
     setState(() {
       _userName = prefs.getString('user_name') ?? '';
       _phoneNumber = prefs.getString('user_phone') ?? '';
@@ -40,50 +41,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
     });
   }
 
-  void _showEditNameDialog() {
-    final controller = TextEditingController(text: _userName);
-    showDialog(
+  Future<void> _showEditNameDialog() async {
+    final newName = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Edit Name'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            hintText: 'Enter your name',
-            enabledBorder: UnderlineInputBorder(
-              borderSide: BorderSide(color: AppColors.primaryColor),
-            ),
-            focusedBorder: UnderlineInputBorder(
-              borderSide: BorderSide(color: AppColors.primaryColor, width: 2),
-            ),
-          ),
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              controller.dispose();
-              Navigator.pop(context);
-            },
-            child: const Text('CANCEL'),
-          ),
-          TextButton(
-            onPressed: () async {
-              final newName = controller.text.trim();
-              controller.dispose();
-              Navigator.pop(context);
-              if (newName.isNotEmpty && newName != _userName) {
-                await _updateProfile(name: newName);
-              }
-            },
-            child: const Text(
-              'SAVE',
-              style: TextStyle(color: AppColors.primaryColor),
-            ),
-          ),
-        ],
-      ),
+      builder: (_) => _EditNameDialog(initialName: _userName),
     );
+    if (!mounted || newName == null) return;
+    if (newName.isNotEmpty && newName != _userName) {
+      await _updateProfile(name: newName);
+    }
   }
 
   Future<void> _pickAndUpdateProfilePicture() async {
@@ -517,6 +483,78 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ],
               ),
       ),
+    );
+  }
+}
+
+class _EditNameDialog extends StatefulWidget {
+  final String initialName;
+
+  const _EditNameDialog({required this.initialName});
+
+  @override
+  State<_EditNameDialog> createState() => _EditNameDialogState();
+}
+
+class _EditNameDialogState extends State<_EditNameDialog> {
+  late final TextEditingController _controller;
+  late final FocusNode _focusNode;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialName);
+    _focusNode = FocusNode();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focusNode.requestFocus();
+    });
+  }
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _cancel() {
+    FocusScope.of(context).unfocus();
+    Navigator.of(context).pop();
+  }
+
+  void _save() {
+    final newName = _controller.text.trim();
+    FocusScope.of(context).unfocus();
+    Navigator.of(context).pop(newName);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Edit Name'),
+      content: TextField(
+        controller: _controller,
+        focusNode: _focusNode,
+        decoration: const InputDecoration(
+          hintText: 'Enter your name',
+          enabledBorder: UnderlineInputBorder(
+            borderSide: BorderSide(color: AppColors.primaryColor),
+          ),
+          focusedBorder: UnderlineInputBorder(
+            borderSide: BorderSide(color: AppColors.primaryColor, width: 2),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: _cancel, child: const Text('CANCEL')),
+        TextButton(
+          onPressed: _save,
+          child: const Text(
+            'SAVE',
+            style: TextStyle(color: AppColors.primaryColor),
+          ),
+        ),
+      ],
     );
   }
 }

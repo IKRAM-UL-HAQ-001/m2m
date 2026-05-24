@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -22,6 +23,13 @@ class IncomingCallNotificationTap {
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
+  if (kDebugMode) {
+    debugPrint(
+      '[push_timing] background FCM received at ${DateTime.now().toIso8601String()} '
+      'message_id=${message.data['message_id'] ?? message.data['id'] ?? 'none'} '
+      'call_id=${message.data['call_id'] ?? 'none'} type=${message.data['type'] ?? 'message'}',
+    );
+  }
   await NotificationService().showRemoteMessageNotification(message);
 }
 
@@ -57,6 +65,7 @@ class NotificationService {
 
   static GlobalKey<NavigatorState>? navigatorKey;
   bool _localNotificationsReady = false;
+  bool _firebaseListenersReady = false;
 
   FirebaseMessaging get _fcm => FirebaseMessaging.instance;
 
@@ -105,33 +114,48 @@ class NotificationService {
     try {
       await _setupLocalNotifications();
 
-      FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+      if (!_firebaseListenersReady) {
+        FirebaseMessaging.onBackgroundMessage(
+          firebaseMessagingBackgroundHandler,
+        );
 
-      FirebaseMessaging.onMessage.listen((message) {
-        handleForegroundRemoteMessage(message);
-      });
+        FirebaseMessaging.onMessage.listen((message) {
+          _logPushTiming('foreground FCM received', message.data);
+          handleForegroundRemoteMessage(message);
+        });
 
-      FirebaseMessaging.onMessageOpenedApp.listen((message) {
-        _handleNotificationTap(message.data);
-      });
+        FirebaseMessaging.onMessageOpenedApp.listen((message) {
+          _logPushTiming('notification opened', message.data);
+          _handleNotificationTap(message.data);
+        });
+
+        _fcm.onTokenRefresh.listen((token) {
+          _logPushTiming('FCM token refresh received');
+          _uploadToken(token);
+        });
+        _firebaseListenersReady = true;
+      }
 
       final initial = await _fcm.getInitialMessage();
       if (initial != null) {
-        Future.delayed(const Duration(seconds: 1), () {
-          _handleNotificationTap(initial.data);
-        });
+        _logPushTiming('initial FCM message received', initial.data);
+        _handleNotificationTap(initial.data);
       }
 
+      unawaited(_requestPermissionAndSaveToken());
+    } catch (e) {
+      debugPrint('Notification initialization error: $e');
+    }
+  }
+
+  Future<void> _requestPermissionAndSaveToken() async {
+    try {
       debugPrint('[startup] notification permission requested');
       await _requestPermission();
       debugPrint('[startup] notification permission completed');
       await _saveToken();
-
-      _fcm.onTokenRefresh.listen((token) {
-        _uploadToken(token);
-      });
     } catch (e) {
-      debugPrint('Notification initialization error: $e');
+      debugPrint('Notification permission/token setup error: $e');
     }
   }
 
@@ -251,9 +275,8 @@ class NotificationService {
         payload.isNotEmpty) {
       try {
         final data = Map<String, dynamic>.from(jsonDecode(payload));
-        Future.delayed(const Duration(milliseconds: 500), () {
-          _handleNotificationTap(data, actionId: response?.actionId);
-        });
+        _logPushTiming('local launch notification received', data);
+        _handleNotificationTap(data, actionId: response?.actionId);
       } catch (e) {
         debugPrint('Launch notification payload decode error: $e');
       }
@@ -267,10 +290,12 @@ class NotificationService {
     final body = notification?.body ?? data['body'] ?? 'You have a new message';
 
     if (_isIncomingCallPayload(data)) {
+      _logPushTiming('remote incoming call notification handling', data);
       await showIncomingCallNotification(data);
       return;
     }
 
+    _logPushTiming('remote message notification handling', data);
     await _showNotification(title: title, body: body, data: data);
     await markRemoteMessageDelivered(message);
   }
@@ -333,6 +358,7 @@ class NotificationService {
       ),
       payload: jsonEncode(data),
     );
+    _logPushTiming('local message notification shown', data);
   }
 
   Future<void> showIncomingCallNotification(Map<String, dynamic> data) async {
@@ -405,6 +431,7 @@ class NotificationService {
       ),
       payload: jsonEncode(data),
     );
+    _logPushTiming('local incoming call notification shown', data);
   }
 
   Future<void> dismissIncomingCall(String? callId) async {
@@ -498,6 +525,8 @@ class NotificationService {
       final token = await _fcm.getToken();
       if (token != null) {
         await _uploadToken(token);
+      } else {
+        _logPushTiming('FCM token missing');
       }
     } catch (e) {
       debugPrint('FCM token error: $e');
@@ -507,9 +536,22 @@ class NotificationService {
   Future<void> _uploadToken(String token) async {
     try {
       await ApiService().updateFcmToken(token);
+      _logPushTiming('FCM token upload success');
     } catch (e) {
       debugPrint('FCM token upload error: $e');
     }
+  }
+
+  void _logPushTiming(String event, [Map<String, dynamic>? data]) {
+    if (!kDebugMode) return;
+    final messageId =
+        data?['message_id']?.toString() ?? data?['id']?.toString();
+    final callId = data?['call_id']?.toString();
+    final type = data?['type']?.toString() ?? 'message';
+    debugPrint(
+      '[push_timing] $event at ${DateTime.now().toIso8601String()} '
+      'message_id=${messageId ?? 'none'} call_id=${callId ?? 'none'} type=$type',
+    );
   }
 
   Future<void> startRingtone() async {
