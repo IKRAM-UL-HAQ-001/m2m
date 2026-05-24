@@ -565,36 +565,26 @@ class AudioPlayerWidget extends StatefulWidget {
 }
 
 class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
-  final AudioPlayer _player = AudioPlayer();
+  AudioPlayer? _player;
   bool _isPlaying = false;
-  bool _isLoading = true;
+  bool _isLoading = false;
+  bool _isReady = false;
   Duration _duration = Duration.zero;
   Duration _position = Duration.zero;
 
-  @override
-  void initState() {
-    super.initState();
-    _player
-        .setSource(UrlSource(widget.url))
-        .then((_) async {
-          final d = await _player.getDuration();
-          if (mounted) {
-            setState(() {
-              if (d != null) _duration = d;
-              _isLoading = false;
-            });
-          }
-        })
-        .catchError((e) {
-          if (mounted) setState(() => _isLoading = false);
-        });
-    _player.onDurationChanged.listen((d) {
+  AudioPlayer get _activePlayer {
+    final existing = _player;
+    if (existing != null) return existing;
+
+    final player = AudioPlayer();
+    _player = player;
+    player.onDurationChanged.listen((d) {
       if (mounted) setState(() => _duration = d);
     });
-    _player.onPositionChanged.listen((p) {
+    player.onPositionChanged.listen((p) {
       if (mounted) setState(() => _position = p);
     });
-    _player.onPlayerComplete.listen((_) {
+    player.onPlayerComplete.listen((_) {
       if (mounted) {
         setState(() {
           _isPlaying = false;
@@ -602,11 +592,33 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
         });
       }
     });
+    return player;
+  }
+
+  Future<bool> _ensureReady() async {
+    if (_isReady) return true;
+    setState(() => _isLoading = true);
+    try {
+      final player = _activePlayer;
+      await player.setSource(UrlSource(widget.url));
+      final d = await player.getDuration();
+      if (!mounted) return false;
+      setState(() {
+        if (d != null) _duration = d;
+        _isReady = true;
+        _isLoading = false;
+      });
+      return true;
+    } catch (e) {
+      debugPrint('Audio error: $e');
+      if (mounted) setState(() => _isLoading = false);
+      return false;
+    }
   }
 
   @override
   void dispose() {
-    _player.dispose();
+    _player?.dispose();
     super.dispose();
   }
 
@@ -631,13 +643,15 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
               if (_isLoading) return;
               try {
                 if (_isPlaying) {
-                  await _player.pause();
+                  await _activePlayer.pause();
                   setState(() => _isPlaying = false);
                 } else {
+                  final isReady = await _ensureReady();
+                  if (!isReady) return;
                   if (_position == _duration && _duration != Duration.zero) {
-                    await _player.seek(Duration.zero);
+                    await _activePlayer.seek(Duration.zero);
                   }
-                  await _player.resume();
+                  await _activePlayer.resume();
                   setState(() => _isPlaying = true);
                 }
               } catch (e) {
@@ -683,7 +697,7 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
                       final pos = Duration(
                         milliseconds: (v * _duration.inMilliseconds).round(),
                       );
-                      _player.seek(pos);
+                      if (_isReady) _activePlayer.seek(pos);
                     },
                     activeColor: AppColors.primaryColor,
                     inactiveColor: Colors.grey[300],
