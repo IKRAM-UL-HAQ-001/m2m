@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/chat.dart';
 import '../models/message.dart';
 import '../services/api_service.dart';
+import '../services/database_service.dart';
 import '../services/websocket_service.dart';
 
 class ChatViewModel extends ChangeNotifier {
@@ -22,6 +23,7 @@ class ChatViewModel extends ChangeNotifier {
 
   final ApiService _apiService = ApiService();
   final SocketService _socketService = SocketService();
+  final AppDatabase _db = AppDatabase();
 
   ChatViewModel() {
     _socketSubscription = _socketService.messageStream.listen((message) {
@@ -43,6 +45,7 @@ class ChatViewModel extends ChangeNotifier {
       _recentMessageEventKeys.clear();
       _recentMessageEventOrder.clear();
       notifyListeners();
+      unawaited(_db.clearDatabase());
       return;
     }
 
@@ -58,8 +61,10 @@ class ChatViewModel extends ChangeNotifier {
     if (index == -1 || _chats[index].unreadCount == 0) return;
 
     final chat = _chats[index];
-    _chats[index] = chat.copyWith(unreadCount: 0);
+    final updatedChat = chat.copyWith(unreadCount: 0);
+    _chats[index] = updatedChat;
     notifyListeners();
+    unawaited(_db.updateLocalChat(updatedChat.toEntity()));
   }
 
   void _handleNewMessage(Message message) {
@@ -96,6 +101,7 @@ class ChatViewModel extends ChangeNotifier {
       final movedChat = _chats.removeAt(index);
       _chats.insert(0, movedChat);
       notifyListeners();
+      unawaited(_db.updateLocalChat(updatedChat.toEntity()));
     } else {
       // If the chat is not in the list (e.g. brand new), fetch all chats to refresh state
       fetchChats(isSilent: true);
@@ -105,14 +111,28 @@ class ChatViewModel extends ChangeNotifier {
   Future<void> fetchChats({bool isSilent = false}) async {
     if (!_isAuthenticated) return;
 
-    if (!isSilent) {
+    if (_chats.isEmpty) {
+      try {
+        final localEntities = await _db.getLocalChats();
+        if (localEntities.isNotEmpty) {
+          _chats = localEntities.map((e) => e.toDomain()).toList();
+          notifyListeners();
+        }
+      } catch (e) {
+        debugPrint('Error loading cached chats: $e');
+      }
+    }
+
+    if (!isSilent && _chats.isEmpty) {
       _isLoading = true;
       notifyListeners();
     }
 
     try {
-      _chats = await _apiService.getChats();
+      final freshChats = await _apiService.getChats();
+      _chats = freshChats;
       notifyListeners();
+      unawaited(_db.saveChats(freshChats.map((c) => c.toEntity()).toList()));
     } catch (e) {
       debugPrint('Error fetching chats from API: $e');
     }
@@ -128,8 +148,10 @@ class ChatViewModel extends ChangeNotifier {
     if (index != -1) {
       final chat = _chats[index];
       if (chat.lastMessageStatus == status.deliveryState) return;
-      _chats[index] = chat.copyWith(lastMessageStatus: status.deliveryState);
+      final updatedChat = chat.copyWith(lastMessageStatus: status.deliveryState);
+      _chats[index] = updatedChat;
       notifyListeners();
+      unawaited(_db.updateLocalChat(updatedChat.toEntity()));
     }
   }
 

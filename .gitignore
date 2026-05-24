@@ -40,6 +40,15 @@ migrate_working_dir/
 coverage/
 test_output*.txt
 
+# Local SQLite runtime databases
+app_cache.sqlite
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+*.db-shm
+*.db-wal
+
 # Symbolication related
 app.*.symbols
 
