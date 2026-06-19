@@ -4,21 +4,30 @@ import '../models/chat.dart';
 import '../models/message.dart';
 import '../services/api_service.dart';
 import '../services/database_service.dart';
+import '../services/media_storage_service.dart';
 import '../services/websocket_service.dart';
 
 class ChatViewModel extends ChangeNotifier {
   List<Chat> _chats = [];
   bool _isLoading = false;
+  bool _isLoadingMore = false;
+  bool _hasMoreChats = true;
+  bool _chatSyncInFlight = false;
   bool _isAuthenticated = false;
+  DateTime? _lastServerSync;
   String? _activeChatId;
   StreamSubscription<Message>? _socketSubscription;
   StreamSubscription<MessageStatusUpdate>? _statusSubscription;
   final Set<String> _recentMessageEventKeys = {};
   final List<String> _recentMessageEventOrder = [];
   static const int _maxRecentMessageEvents = 200;
+  static const int _chatPageSize = 20;
+  static const Duration _minimumSyncInterval = Duration(seconds: 45);
 
   List<Chat> get chats => _chats;
   bool get isLoading => _isLoading;
+  bool get isLoadingMore => _isLoadingMore;
+  bool get hasMoreChats => _hasMoreChats;
   String? get activeChatId => _activeChatId;
 
   final ApiService _apiService = ApiService();
@@ -42,6 +51,9 @@ class ChatViewModel extends ChangeNotifier {
       _activeChatId = null;
       _chats = [];
       _isLoading = false;
+      _isLoadingMore = false;
+      _hasMoreChats = true;
+      _lastServerSync = null;
       _recentMessageEventKeys.clear();
       _recentMessageEventOrder.clear();
       notifyListeners();
@@ -49,11 +61,15 @@ class ChatViewModel extends ChangeNotifier {
       return;
     }
 
-    fetchChats(isSilent: true);
+    fetchChats(isSilent: true, force: true);
   }
 
   void setActiveChat(String? chatId) {
     _activeChatId = chatId;
+  }
+
+  Future<void> invalidateMessageFreshness() {
+    return _db.invalidateMessageRefreshes();
   }
 
   void markChatRead(String chatId) {
@@ -71,6 +87,14 @@ class ChatViewModel extends ChangeNotifier {
   void _handleNewMessage(Message message) {
     if (_isDuplicateMessageEvent(message)) return;
     unawaited(_db.upsertMessage(message));
+    if (!message.isMe && message.type != 'text') {
+      MediaStorageService.instance.cacheMessagesInBackground(
+        [message],
+        onCached: (cachedMessage, path) {
+          return _db.updateMessageLocalFilePath(cachedMessage.id, path);
+        },
+      );
+    }
     // Find the chat and update its last message and unread count
     final index = _chats.indexWhere((c) => c.id == message.chatId);
     if (index != -1) {
@@ -106,11 +130,11 @@ class ChatViewModel extends ChangeNotifier {
       unawaited(_db.updateLocalChat(updatedChat.toEntity()));
     } else {
       // If the chat is not in the list (e.g. brand new), fetch all chats to refresh state
-      fetchChats(isSilent: true);
+      fetchChats(isSilent: true, force: true);
     }
   }
 
-  Future<void> fetchChats({bool isSilent = false}) async {
+  Future<void> fetchChats({bool isSilent = false, bool force = false}) async {
     if (!_isAuthenticated) return;
 
     if (_chats.isEmpty) {
@@ -130,17 +154,66 @@ class ChatViewModel extends ChangeNotifier {
       notifyListeners();
     }
 
+    final lastSync = _lastServerSync;
+    if (!force &&
+        lastSync != null &&
+        DateTime.now().difference(lastSync) < _minimumSyncInterval) {
+      if (_isLoading) {
+        _isLoading = false;
+        notifyListeners();
+      }
+      return;
+    }
+    if (_chatSyncInFlight) return;
+    _chatSyncInFlight = true;
+
     try {
-      final freshChats = await _apiService.getChats();
-      _chats = freshChats;
+      final page = await _apiService.getChatsPage(limit: _chatPageSize);
+      final chatsById = {for (final chat in _chats) chat.id: chat};
+      for (final chat in page.items) {
+        chatsById[chat.id] = chat;
+      }
+      _chats = chatsById.values.toList()
+        ..sort((a, b) => b.time.compareTo(a.time));
+      _hasMoreChats = page.hasMore;
+      _lastServerSync = DateTime.now();
       notifyListeners();
-      unawaited(_db.saveChats(freshChats.map((c) => c.toEntity()).toList()));
+      unawaited(_db.saveChats(page.items.map((c) => c.toEntity()).toList()));
     } catch (e) {
       debugPrint('Error fetching chats from API: $e');
+    } finally {
+      _chatSyncInFlight = false;
     }
 
     if (!isSilent) {
       _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> loadMoreChats() async {
+    if (!_isAuthenticated ||
+        !_hasMoreChats ||
+        _isLoadingMore ||
+        _chatSyncInFlight) {
+      return;
+    }
+    _isLoadingMore = true;
+    notifyListeners();
+    try {
+      final page = await _apiService.getChatsPage(
+        offset: _chats.length,
+        limit: _chatPageSize,
+      );
+      final knownIds = _chats.map((chat) => chat.id).toSet();
+      _chats.addAll(page.items.where((chat) => knownIds.add(chat.id)));
+      _chats.sort((a, b) => b.time.compareTo(a.time));
+      _hasMoreChats = page.hasMore;
+      unawaited(_db.saveChats(page.items.map((c) => c.toEntity()).toList()));
+    } catch (e) {
+      debugPrint('Error loading more chats: $e');
+    } finally {
+      _isLoadingMore = false;
       notifyListeners();
     }
   }

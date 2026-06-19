@@ -2650,11 +2650,346 @@ class MessagesTableCompanion extends UpdateCompanion<MessageEntity> {
   }
 }
 
+class $MessageSyncStatesTable extends MessageSyncStates
+    with TableInfo<$MessageSyncStatesTable, MessageSyncStateEntity> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $MessageSyncStatesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _chatIdMeta = const VerificationMeta('chatId');
+  @override
+  late final GeneratedColumn<String> chatId = GeneratedColumn<String>(
+    'chat_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _nextCursorMeta = const VerificationMeta(
+    'nextCursor',
+  );
+  @override
+  late final GeneratedColumn<String> nextCursor = GeneratedColumn<String>(
+    'next_cursor',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _hasMoreMeta = const VerificationMeta(
+    'hasMore',
+  );
+  @override
+  late final GeneratedColumn<bool> hasMore = GeneratedColumn<bool>(
+    'has_more',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("has_more" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
+  );
+  static const VerificationMeta _lastRefreshedAtMeta = const VerificationMeta(
+    'lastRefreshedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> lastRefreshedAt =
+      GeneratedColumn<DateTime>(
+        'last_refreshed_at',
+        aliasedName,
+        true,
+        type: DriftSqlType.dateTime,
+        requiredDuringInsert: false,
+      );
+  @override
+  List<GeneratedColumn> get $columns => [
+    chatId,
+    nextCursor,
+    hasMore,
+    lastRefreshedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'message_sync_states';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<MessageSyncStateEntity> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('chat_id')) {
+      context.handle(
+        _chatIdMeta,
+        chatId.isAcceptableOrUnknown(data['chat_id']!, _chatIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_chatIdMeta);
+    }
+    if (data.containsKey('next_cursor')) {
+      context.handle(
+        _nextCursorMeta,
+        nextCursor.isAcceptableOrUnknown(data['next_cursor']!, _nextCursorMeta),
+      );
+    }
+    if (data.containsKey('has_more')) {
+      context.handle(
+        _hasMoreMeta,
+        hasMore.isAcceptableOrUnknown(data['has_more']!, _hasMoreMeta),
+      );
+    }
+    if (data.containsKey('last_refreshed_at')) {
+      context.handle(
+        _lastRefreshedAtMeta,
+        lastRefreshedAt.isAcceptableOrUnknown(
+          data['last_refreshed_at']!,
+          _lastRefreshedAtMeta,
+        ),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {chatId};
+  @override
+  MessageSyncStateEntity map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return MessageSyncStateEntity(
+      chatId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}chat_id'],
+      )!,
+      nextCursor: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}next_cursor'],
+      ),
+      hasMore: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}has_more'],
+      )!,
+      lastRefreshedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}last_refreshed_at'],
+      ),
+    );
+  }
+
+  @override
+  $MessageSyncStatesTable createAlias(String alias) {
+    return $MessageSyncStatesTable(attachedDatabase, alias);
+  }
+}
+
+class MessageSyncStateEntity extends DataClass
+    implements Insertable<MessageSyncStateEntity> {
+  final String chatId;
+  final String? nextCursor;
+  final bool hasMore;
+  final DateTime? lastRefreshedAt;
+  const MessageSyncStateEntity({
+    required this.chatId,
+    this.nextCursor,
+    required this.hasMore,
+    this.lastRefreshedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['chat_id'] = Variable<String>(chatId);
+    if (!nullToAbsent || nextCursor != null) {
+      map['next_cursor'] = Variable<String>(nextCursor);
+    }
+    map['has_more'] = Variable<bool>(hasMore);
+    if (!nullToAbsent || lastRefreshedAt != null) {
+      map['last_refreshed_at'] = Variable<DateTime>(lastRefreshedAt);
+    }
+    return map;
+  }
+
+  MessageSyncStatesCompanion toCompanion(bool nullToAbsent) {
+    return MessageSyncStatesCompanion(
+      chatId: Value(chatId),
+      nextCursor: nextCursor == null && nullToAbsent
+          ? const Value.absent()
+          : Value(nextCursor),
+      hasMore: Value(hasMore),
+      lastRefreshedAt: lastRefreshedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastRefreshedAt),
+    );
+  }
+
+  factory MessageSyncStateEntity.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return MessageSyncStateEntity(
+      chatId: serializer.fromJson<String>(json['chatId']),
+      nextCursor: serializer.fromJson<String?>(json['nextCursor']),
+      hasMore: serializer.fromJson<bool>(json['hasMore']),
+      lastRefreshedAt: serializer.fromJson<DateTime?>(json['lastRefreshedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'chatId': serializer.toJson<String>(chatId),
+      'nextCursor': serializer.toJson<String?>(nextCursor),
+      'hasMore': serializer.toJson<bool>(hasMore),
+      'lastRefreshedAt': serializer.toJson<DateTime?>(lastRefreshedAt),
+    };
+  }
+
+  MessageSyncStateEntity copyWith({
+    String? chatId,
+    Value<String?> nextCursor = const Value.absent(),
+    bool? hasMore,
+    Value<DateTime?> lastRefreshedAt = const Value.absent(),
+  }) => MessageSyncStateEntity(
+    chatId: chatId ?? this.chatId,
+    nextCursor: nextCursor.present ? nextCursor.value : this.nextCursor,
+    hasMore: hasMore ?? this.hasMore,
+    lastRefreshedAt: lastRefreshedAt.present
+        ? lastRefreshedAt.value
+        : this.lastRefreshedAt,
+  );
+  MessageSyncStateEntity copyWithCompanion(MessageSyncStatesCompanion data) {
+    return MessageSyncStateEntity(
+      chatId: data.chatId.present ? data.chatId.value : this.chatId,
+      nextCursor: data.nextCursor.present
+          ? data.nextCursor.value
+          : this.nextCursor,
+      hasMore: data.hasMore.present ? data.hasMore.value : this.hasMore,
+      lastRefreshedAt: data.lastRefreshedAt.present
+          ? data.lastRefreshedAt.value
+          : this.lastRefreshedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('MessageSyncStateEntity(')
+          ..write('chatId: $chatId, ')
+          ..write('nextCursor: $nextCursor, ')
+          ..write('hasMore: $hasMore, ')
+          ..write('lastRefreshedAt: $lastRefreshedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(chatId, nextCursor, hasMore, lastRefreshedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is MessageSyncStateEntity &&
+          other.chatId == this.chatId &&
+          other.nextCursor == this.nextCursor &&
+          other.hasMore == this.hasMore &&
+          other.lastRefreshedAt == this.lastRefreshedAt);
+}
+
+class MessageSyncStatesCompanion
+    extends UpdateCompanion<MessageSyncStateEntity> {
+  final Value<String> chatId;
+  final Value<String?> nextCursor;
+  final Value<bool> hasMore;
+  final Value<DateTime?> lastRefreshedAt;
+  final Value<int> rowid;
+  const MessageSyncStatesCompanion({
+    this.chatId = const Value.absent(),
+    this.nextCursor = const Value.absent(),
+    this.hasMore = const Value.absent(),
+    this.lastRefreshedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  MessageSyncStatesCompanion.insert({
+    required String chatId,
+    this.nextCursor = const Value.absent(),
+    this.hasMore = const Value.absent(),
+    this.lastRefreshedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : chatId = Value(chatId);
+  static Insertable<MessageSyncStateEntity> custom({
+    Expression<String>? chatId,
+    Expression<String>? nextCursor,
+    Expression<bool>? hasMore,
+    Expression<DateTime>? lastRefreshedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (chatId != null) 'chat_id': chatId,
+      if (nextCursor != null) 'next_cursor': nextCursor,
+      if (hasMore != null) 'has_more': hasMore,
+      if (lastRefreshedAt != null) 'last_refreshed_at': lastRefreshedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  MessageSyncStatesCompanion copyWith({
+    Value<String>? chatId,
+    Value<String?>? nextCursor,
+    Value<bool>? hasMore,
+    Value<DateTime?>? lastRefreshedAt,
+    Value<int>? rowid,
+  }) {
+    return MessageSyncStatesCompanion(
+      chatId: chatId ?? this.chatId,
+      nextCursor: nextCursor ?? this.nextCursor,
+      hasMore: hasMore ?? this.hasMore,
+      lastRefreshedAt: lastRefreshedAt ?? this.lastRefreshedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (chatId.present) {
+      map['chat_id'] = Variable<String>(chatId.value);
+    }
+    if (nextCursor.present) {
+      map['next_cursor'] = Variable<String>(nextCursor.value);
+    }
+    if (hasMore.present) {
+      map['has_more'] = Variable<bool>(hasMore.value);
+    }
+    if (lastRefreshedAt.present) {
+      map['last_refreshed_at'] = Variable<DateTime>(lastRefreshedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('MessageSyncStatesCompanion(')
+          ..write('chatId: $chatId, ')
+          ..write('nextCursor: $nextCursor, ')
+          ..write('hasMore: $hasMore, ')
+          ..write('lastRefreshedAt: $lastRefreshedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
   late final $ChatsTableTable chatsTable = $ChatsTableTable(this);
   late final $MessagesTableTable messagesTable = $MessagesTableTable(this);
+  late final $MessageSyncStatesTable messageSyncStates =
+      $MessageSyncStatesTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -2662,6 +2997,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   List<DatabaseSchemaEntity> get allSchemaEntities => [
     chatsTable,
     messagesTable,
+    messageSyncStates,
   ];
 }
 
@@ -3812,6 +4148,204 @@ typedef $$MessagesTableTableProcessedTableManager =
       MessageEntity,
       PrefetchHooks Function()
     >;
+typedef $$MessageSyncStatesTableCreateCompanionBuilder =
+    MessageSyncStatesCompanion Function({
+      required String chatId,
+      Value<String?> nextCursor,
+      Value<bool> hasMore,
+      Value<DateTime?> lastRefreshedAt,
+      Value<int> rowid,
+    });
+typedef $$MessageSyncStatesTableUpdateCompanionBuilder =
+    MessageSyncStatesCompanion Function({
+      Value<String> chatId,
+      Value<String?> nextCursor,
+      Value<bool> hasMore,
+      Value<DateTime?> lastRefreshedAt,
+      Value<int> rowid,
+    });
+
+class $$MessageSyncStatesTableFilterComposer
+    extends Composer<_$AppDatabase, $MessageSyncStatesTable> {
+  $$MessageSyncStatesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get chatId => $composableBuilder(
+    column: $table.chatId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get nextCursor => $composableBuilder(
+    column: $table.nextCursor,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get hasMore => $composableBuilder(
+    column: $table.hasMore,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get lastRefreshedAt => $composableBuilder(
+    column: $table.lastRefreshedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$MessageSyncStatesTableOrderingComposer
+    extends Composer<_$AppDatabase, $MessageSyncStatesTable> {
+  $$MessageSyncStatesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get chatId => $composableBuilder(
+    column: $table.chatId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get nextCursor => $composableBuilder(
+    column: $table.nextCursor,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get hasMore => $composableBuilder(
+    column: $table.hasMore,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get lastRefreshedAt => $composableBuilder(
+    column: $table.lastRefreshedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$MessageSyncStatesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $MessageSyncStatesTable> {
+  $$MessageSyncStatesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get chatId =>
+      $composableBuilder(column: $table.chatId, builder: (column) => column);
+
+  GeneratedColumn<String> get nextCursor => $composableBuilder(
+    column: $table.nextCursor,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get hasMore =>
+      $composableBuilder(column: $table.hasMore, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get lastRefreshedAt => $composableBuilder(
+    column: $table.lastRefreshedAt,
+    builder: (column) => column,
+  );
+}
+
+class $$MessageSyncStatesTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $MessageSyncStatesTable,
+          MessageSyncStateEntity,
+          $$MessageSyncStatesTableFilterComposer,
+          $$MessageSyncStatesTableOrderingComposer,
+          $$MessageSyncStatesTableAnnotationComposer,
+          $$MessageSyncStatesTableCreateCompanionBuilder,
+          $$MessageSyncStatesTableUpdateCompanionBuilder,
+          (
+            MessageSyncStateEntity,
+            BaseReferences<
+              _$AppDatabase,
+              $MessageSyncStatesTable,
+              MessageSyncStateEntity
+            >,
+          ),
+          MessageSyncStateEntity,
+          PrefetchHooks Function()
+        > {
+  $$MessageSyncStatesTableTableManager(
+    _$AppDatabase db,
+    $MessageSyncStatesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$MessageSyncStatesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$MessageSyncStatesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$MessageSyncStatesTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> chatId = const Value.absent(),
+                Value<String?> nextCursor = const Value.absent(),
+                Value<bool> hasMore = const Value.absent(),
+                Value<DateTime?> lastRefreshedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => MessageSyncStatesCompanion(
+                chatId: chatId,
+                nextCursor: nextCursor,
+                hasMore: hasMore,
+                lastRefreshedAt: lastRefreshedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String chatId,
+                Value<String?> nextCursor = const Value.absent(),
+                Value<bool> hasMore = const Value.absent(),
+                Value<DateTime?> lastRefreshedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => MessageSyncStatesCompanion.insert(
+                chatId: chatId,
+                nextCursor: nextCursor,
+                hasMore: hasMore,
+                lastRefreshedAt: lastRefreshedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$MessageSyncStatesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $MessageSyncStatesTable,
+      MessageSyncStateEntity,
+      $$MessageSyncStatesTableFilterComposer,
+      $$MessageSyncStatesTableOrderingComposer,
+      $$MessageSyncStatesTableAnnotationComposer,
+      $$MessageSyncStatesTableCreateCompanionBuilder,
+      $$MessageSyncStatesTableUpdateCompanionBuilder,
+      (
+        MessageSyncStateEntity,
+        BaseReferences<
+          _$AppDatabase,
+          $MessageSyncStatesTable,
+          MessageSyncStateEntity
+        >,
+      ),
+      MessageSyncStateEntity,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -3820,4 +4354,6 @@ class $AppDatabaseManager {
       $$ChatsTableTableTableManager(_db, _db.chatsTable);
   $$MessagesTableTableTableManager get messagesTable =>
       $$MessagesTableTableTableManager(_db, _db.messagesTable);
+  $$MessageSyncStatesTableTableManager get messageSyncStates =>
+      $$MessageSyncStatesTableTableManager(_db, _db.messageSyncStates);
 }

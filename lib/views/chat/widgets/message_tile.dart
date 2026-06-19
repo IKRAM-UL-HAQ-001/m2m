@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:audioplayers/audioplayers.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
@@ -5,6 +7,8 @@ import 'package:intl/intl.dart';
 
 import '../../../models/message.dart';
 import '../../../services/api_service.dart';
+import '../../../services/database_service.dart';
+import '../../../services/media_storage_service.dart';
 import '../../../utils/constants.dart';
 import '../../../utils/responsive.dart';
 
@@ -35,8 +39,14 @@ class MessageTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isMe = message.isMe;
-    final hasFile = message.fileUrl != null && message.fileUrl!.isNotEmpty;
-    final url = message.fileUrl ?? '';
+    final localPath = message.localFilePath;
+    final hasLocalFile =
+        localPath != null &&
+        localPath.isNotEmpty &&
+        File(localPath).existsSync();
+    final hasRemoteFile = message.fileUrl?.isNotEmpty ?? false;
+    final hasFile = hasLocalFile || hasRemoteFile;
+    final url = message.fileUrl ?? localPath ?? '';
     final isImage = hasFile && (message.type == 'image' || _isImageUrl(url));
     final isAudio = hasFile && (message.type == 'audio' || _isAudioUrl(url));
     final isVideo = hasFile && (message.type == 'video' || _isVideoUrl(url));
@@ -327,6 +337,11 @@ class MessageTile extends StatelessWidget {
   }
 
   Widget _buildImageContent(Message message) {
+    final localPath = message.localFilePath;
+    final hasLocalFile =
+        localPath != null &&
+        localPath.isNotEmpty &&
+        File(localPath).existsSync();
     final previewUrl =
         message.thumbnailUrl != null && message.thumbnailUrl!.isNotEmpty
         ? message.thumbnailUrl
@@ -347,20 +362,33 @@ class MessageTile extends StatelessWidget {
                   minHeight: 140,
                   maxHeight: 320,
                 ),
-                child: CachedNetworkImage(
-                  imageUrl: imageUrl,
-                  memCacheWidth: 520,
-                  memCacheHeight: 640,
-                  fit: BoxFit.cover,
-                  placeholder: (context, url) =>
-                      Container(width: 220, height: 180, color: Colors.black12),
-                  errorWidget: (context, url, error) =>
-                      const Icon(Icons.broken_image, size: 48),
-                ),
+                child: hasLocalFile
+                    ? Image.file(
+                        File(localPath),
+                        cacheWidth: 520,
+                        cacheHeight: 640,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) =>
+                            const Icon(Icons.broken_image, size: 48),
+                      )
+                    : CachedNetworkImage(
+                        imageUrl: imageUrl,
+                        memCacheWidth: 520,
+                        memCacheHeight: 640,
+                        fit: BoxFit.cover,
+                        placeholder: (context, url) => Container(
+                          width: 220,
+                          height: 180,
+                          color: Colors.black12,
+                        ),
+                        errorWidget: (context, url, error) =>
+                            const Icon(Icons.broken_image, size: 48),
+                      ),
               ),
             ),
           ),
-          if (!downloadedUrls.contains(message.fileUrl!))
+          if ((message.fileUrl?.isNotEmpty ?? false) &&
+              !downloadedUrls.contains(message.fileUrl!))
             Positioned(
               right: 4,
               bottom: 4,
@@ -417,14 +445,19 @@ class MessageTile extends StatelessWidget {
   }
 
   Widget _buildAudioContent(Message message, bool isMe) {
-    return AudioPlayerWidget(url: message.fileUrl!, isMe: isMe);
+    return AudioPlayerWidget(message: message, isMe: isMe);
   }
 
   Widget _buildDocumentContent(Message message) {
     final fileName =
-        message.fileName ?? message.fileUrl!.split('/').last.split('?').first;
+        message.fileName ??
+        (message.fileUrl ?? message.localFilePath ?? 'File')
+            .split('/')
+            .last
+            .split('?')
+            .first;
     return InkWell(
-      onTap: () => onOpenFile(message.fileUrl!),
+      onTap: () => onOpenFile(message.localFilePath ?? message.fileUrl ?? ''),
       borderRadius: BorderRadius.circular(8),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -556,9 +589,13 @@ class MessageTile extends StatelessWidget {
 }
 
 class AudioPlayerWidget extends StatefulWidget {
-  final String url;
+  final Message message;
   final bool isMe;
-  const AudioPlayerWidget({super.key, required this.url, this.isMe = false});
+  const AudioPlayerWidget({
+    super.key,
+    required this.message,
+    this.isMe = false,
+  });
 
   @override
   State<AudioPlayerWidget> createState() => _AudioPlayerWidgetState();
@@ -571,6 +608,22 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
   bool _isReady = false;
   Duration _duration = Duration.zero;
   Duration _position = Duration.zero;
+  String? _localPath;
+
+  @override
+  void initState() {
+    super.initState();
+    _localPath = widget.message.localFilePath;
+  }
+
+  @override
+  void didUpdateWidget(covariant AudioPlayerWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.message.localFilePath != oldWidget.message.localFilePath) {
+      _localPath = widget.message.localFilePath;
+      _isReady = false;
+    }
+  }
 
   AudioPlayer get _activePlayer {
     final existing = _player;
@@ -600,7 +653,28 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
     setState(() => _isLoading = true);
     try {
       final player = _activePlayer;
-      await player.setSource(UrlSource(widget.url));
+      var localPath = _localPath;
+      if (localPath == null ||
+          localPath.isEmpty ||
+          !File(localPath).existsSync()) {
+        localPath = await MediaStorageService.instance.cacheMessage(
+          widget.message,
+        );
+        if (localPath != null) {
+          await AppDatabase().updateMessageLocalFilePath(
+            widget.message.id,
+            localPath,
+          );
+          _localPath = localPath;
+        }
+      }
+      if (localPath != null && File(localPath).existsSync()) {
+        await player.setSource(DeviceFileSource(localPath));
+      } else {
+        await player.setSource(
+          UrlSource(ApiService.mediaUrl(widget.message.fileUrl)),
+        );
+      }
       final d = await player.getDuration();
       if (!mounted) return false;
       setState(() {

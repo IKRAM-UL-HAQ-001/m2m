@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 import 'package:gal/gal.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:open_filex/open_filex.dart';
 import 'package:provider/provider.dart';
 import 'package:record/record.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -21,6 +22,7 @@ import '../models/chat.dart';
 import '../models/message.dart';
 import '../services/api_service.dart';
 import '../services/database_service.dart';
+import '../services/media_storage_service.dart';
 import '../services/notification_service.dart';
 import '../services/permission_service.dart';
 import '../services/websocket_service.dart';
@@ -46,6 +48,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     with TickerProviderStateMixin {
   static const double _emojiPickerHeight = 280;
   static const int _maxMessageScrollKeys = 50;
+  static const int _messagePageSize = 30;
+  static const Duration _messageRefreshInterval = Duration(minutes: 2);
 
   final TextEditingController _messageController = TextEditingController();
   final FocusNode _focusNode = FocusNode();
@@ -58,6 +62,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   bool _showSendIcon = false;
   List<Message> _messages = [];
   bool _isLoading = true;
+  bool _isLoadingMore = false;
+  bool _hasMoreHistory = true;
+  bool _hasMoreLocalHistory = true;
+  bool _historyRefreshInFlight = false;
+  String? _nextHistoryCursor;
   bool _isRecording = false;
   bool _isLocked = false;
   bool _isCancelling = false;
@@ -109,6 +118,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     SocketService().setActiveChatId(_currentChatId);
     NotificationService.setActiveChatId(_currentChatId);
     NotificationService.setActiveChatParticipantId(widget.chat.receiverId);
+    _scrollController.addListener(_handleHistoryScroll);
     _loadDownloadedFiles();
     _loadMessages();
     _listenToSocket();
@@ -148,7 +158,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       }
       final changed = _upsertMessage(msg);
       if (changed) {
-        unawaited(_db.upsertMessage(msg));
+        final resolvedMessage = _messages.firstWhere(
+          (message) =>
+              message.id == msg.id || message.clientUuid == msg.clientUuid,
+        );
+        unawaited(_db.upsertMessage(resolvedMessage));
+        _cacheMediaMessages([resolvedMessage]);
         setState(() {});
         if (!msg.isMe) {
           _markCurrentChatRead(messageId: msg.id);
@@ -180,11 +195,23 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     });
     _deleteSubscription = SocketService().messageDeleteStream.listen((data) {
       if (data['chat_id']?.toString() == _currentChatId && mounted) {
+        final existing = _messageById(data['message_id']?.toString());
         final changed = _applyDelete(data);
         if (changed) {
           final messageId = data['message_id']?.toString();
           final message = _messageById(messageId);
-          if (message != null) unawaited(_db.upsertMessage(message));
+          if (message != null) {
+            unawaited(
+              _db.upsertMessage(message).then((_) {
+                return _db.updateMessageLocalFilePath(message.id, null);
+              }),
+            );
+          }
+          unawaited(
+            MediaStorageService.instance.deleteLocalFile(
+              existing?.localFilePath,
+            ),
+          );
           setState(() {});
         }
       }
@@ -249,37 +276,191 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     super.dispose();
   }
 
-  void _loadMessages() async {
+  Future<void> _loadMessages() async {
     if (_currentChatId == null || _currentChatId!.startsWith('new_')) {
       setState(() => _isLoading = false);
       return;
     }
+    final chatId = _currentChatId!;
+    MessageSyncStateEntity? syncState;
     try {
-      final cachedMessages = await _db.getCachedMessages(_currentChatId!);
-      if (mounted && cachedMessages.isNotEmpty) {
-        setState(() {
+      syncState = await _db.getMessageSyncState(chatId);
+      final cachedMessages = await _db.getCachedMessages(
+        chatId,
+        limit: _messagePageSize,
+      );
+      if (!mounted) return;
+      setState(() {
+        _nextHistoryCursor = syncState?.nextCursor;
+        _hasMoreHistory = syncState?.hasMore ?? true;
+        _hasMoreLocalHistory = cachedMessages.length >= _messagePageSize;
+        if (cachedMessages.isNotEmpty) {
           _messages = cachedMessages;
-          _isLoading = false;
           _pruneMessageKeys();
-        });
-      }
+        }
+        _isLoading = cachedMessages.isEmpty;
+      });
+      _cacheMediaMessages(cachedMessages);
     } catch (e) {
       debugPrint('Error loading cached messages: $e');
     }
+
+    final lastRefresh = syncState?.lastRefreshedAt;
+    final cacheIsFresh =
+        lastRefresh != null &&
+        DateTime.now().difference(lastRefresh) < _messageRefreshInterval;
+    if (cacheIsFresh) {
+      if (mounted) setState(() => _isLoading = false);
+      return;
+    }
+    await _refreshLatestMessages(chatId, syncState: syncState);
+  }
+
+  Future<void> _refreshLatestMessages(
+    String chatId, {
+    MessageSyncStateEntity? syncState,
+  }) async {
+    if (_historyRefreshInFlight) return;
+    _historyRefreshInFlight = true;
     try {
-      final messages = await _apiService.getMessages(_currentChatId!);
-      unawaited(_db.upsertMessages(_currentChatId!, messages));
-      if (mounted) {
+      final page = await _apiService.getMessagesPage(
+        chatId,
+        pageSize: _messagePageSize,
+      );
+      await _db.upsertMessages(chatId, page.items);
+      _cacheMediaMessages(page.items);
+      await _db.recordMessageRefresh(
+        chatId,
+        initialNextCursor: page.nextCursor,
+        initialHasMore: page.hasMore,
+      );
+      if (!mounted || chatId != _currentChatId) return;
+      setState(() {
+        _mergeMessages(page.items);
+        if (syncState == null) {
+          _nextHistoryCursor = page.nextCursor;
+          _hasMoreHistory = page.hasMore;
+        }
+        _isLoading = false;
+      });
+      _markCurrentChatRead();
+    } catch (e) {
+      debugPrint('Error refreshing messages: $e');
+      if (mounted) setState(() => _isLoading = false);
+    } finally {
+      _historyRefreshInFlight = false;
+    }
+  }
+
+  void _handleHistoryScroll() {
+    if (!_scrollController.hasClients) return;
+    final position = _scrollController.position;
+    if (position.pixels >= position.maxScrollExtent - 320) {
+      unawaited(_loadMoreHistory());
+    }
+  }
+
+  Future<void> _loadMoreHistory() async {
+    final chatId = _currentChatId;
+    if (chatId == null ||
+        chatId.startsWith('new_') ||
+        _isLoadingMore ||
+        _historyRefreshInFlight ||
+        (!_hasMoreLocalHistory && !_hasMoreHistory)) {
+      return;
+    }
+    _isLoadingMore = true;
+    if (mounted) setState(() {});
+
+    try {
+      final oldestTime = _messages.isEmpty ? null : _messages.last.time;
+      final cached = _hasMoreLocalHistory
+          ? await _db.getCachedMessages(
+              chatId,
+              limit: _messagePageSize,
+              before: oldestTime,
+            )
+          : const <Message>[];
+      _hasMoreLocalHistory = cached.length >= _messagePageSize;
+      if (cached.isNotEmpty && mounted) {
         setState(() {
-          _messages = messages;
-          _isLoading = false;
-          _pruneMessageKeys();
+          _mergeMessages(cached);
         });
-        _markCurrentChatRead();
+      }
+
+      if (cached.length >= _messagePageSize || !_hasMoreHistory) return;
+      var cursor = _nextHistoryCursor;
+      if (cursor == null) {
+        final state = await _db.getMessageSyncState(chatId);
+        cursor = state?.nextCursor;
+        _hasMoreHistory = state?.hasMore ?? false;
+      }
+      if (cursor == null || !_hasMoreHistory) return;
+
+      final page = await _apiService.getMessagesPage(
+        chatId,
+        cursor: cursor,
+        pageSize: _messagePageSize,
+      );
+      await _db.upsertMessages(chatId, page.items);
+      _cacheMediaMessages(page.items);
+      await _db.updateMessagePagination(
+        chatId,
+        nextCursor: page.nextCursor,
+        hasMore: page.hasMore,
+      );
+      if (mounted && chatId == _currentChatId) {
+        setState(() {
+          _nextHistoryCursor = page.nextCursor;
+          _hasMoreHistory = page.hasMore;
+          _mergeMessages(page.items);
+        });
       }
     } catch (e) {
-      if (mounted) setState(() => _isLoading = false);
+      debugPrint('Error loading older messages: $e');
+    } finally {
+      _isLoadingMore = false;
+      if (mounted) setState(() {});
     }
+  }
+
+  void _mergeMessages(Iterable<Message> incoming) {
+    for (final message in incoming) {
+      final index = _messages.indexWhere(
+        (current) =>
+            current.id == message.id ||
+            current.clientUuid == message.clientUuid,
+      );
+      if (index == -1) {
+        _messages.add(message);
+      } else {
+        final localPath = _messages[index].localFilePath;
+        _messages[index] = message.localFilePath == null && localPath != null
+            ? message.copyWith(localFilePath: localPath)
+            : message;
+      }
+    }
+    _messages.sort((a, b) => b.time.compareTo(a.time));
+    _pruneMessageKeys();
+  }
+
+  void _cacheMediaMessages(Iterable<Message> messages) {
+    MediaStorageService.instance.cacheMessagesInBackground(
+      messages,
+      onCached: (message, path) async {
+        await _db.updateMessageLocalFilePath(message.id, path);
+        if (!mounted || message.chatId != _currentChatId) return;
+        final index = _messages.indexWhere(
+          (current) =>
+              current.id == message.id ||
+              current.clientUuid == message.clientUuid,
+        );
+        if (index == -1 || _messages[index].localFilePath == path) return;
+        setState(() {
+          _messages[index] = _messages[index].copyWith(localFilePath: path);
+        });
+      },
+    );
   }
 
   Future<void> _loadDownloadedFiles() async {
@@ -308,10 +489,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       return true;
     }
 
-    if (_messages[existingIndex] == message) {
+    final localPath = _messages[existingIndex].localFilePath;
+    final resolvedMessage = message.localFilePath == null && localPath != null
+        ? message.copyWith(localFilePath: localPath)
+        : message;
+    if (_messages[existingIndex] == resolvedMessage) {
       return false;
     } else {
-      _messages[existingIndex] = message;
+      _messages[existingIndex] = resolvedMessage;
     }
     _pruneMessageKeys();
     return true;
@@ -485,6 +670,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       text: '',
       isDeletedForEveryone: true,
       fileUrl: '',
+      localFilePath: null,
     );
     _pruneMessageKeys();
     return true;
@@ -722,8 +908,32 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     }
   }
 
-  void _sendFileMessage(File file, {String? type, double? duration}) async {
+  Future<void> _sendFileMessage(
+    File file, {
+    String? type,
+    double? duration,
+  }) async {
     final clientUuid = ApiService.createClientUuid();
+    final messageType = type ?? 'document';
+    final originalFileName = file.path.split('/').last;
+    late final String localPath;
+    try {
+      localPath = await MediaStorageService.instance.persistOutgoing(
+        source: file,
+        mediaId: clientUuid,
+        mediaType: messageType,
+        fileName: originalFileName,
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Unable to store media: $error')),
+        );
+      }
+      return;
+    }
+    final persistedFile = File(localPath);
+    final persistedSize = await persistedFile.length();
     final pendingText = switch (type) {
       'audio' => '🎤 Voice message',
       'image' => '📷 Photo',
@@ -740,27 +950,38 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
           time: DateTime.now(),
           isMe: true,
           chatId: _currentChatId ?? widget.chat.id,
-          type: type ?? 'document',
+          type: messageType,
+          localFilePath: localPath,
+          fileName: originalFileName,
+          fileSize: persistedSize,
           deliveryState: DeliveryState.pending,
         );
         _messages.insert(0, pendingMessage);
         if (!pendingMessage.chatId.startsWith('new_')) {
-          unawaited(_db.upsertMessage(pendingMessage));
+          unawaited(
+            _db.upsertMessage(
+              pendingMessage,
+              receiverId: widget.chat.receiverId,
+              localFilePath: localPath,
+            ),
+          );
         }
         _pruneMessageKeys();
       });
       _scrollToBottom();
     }
     try {
-      final message = await _apiService.sendMessage(
+      final serverMessage = await _apiService.sendMessage(
         widget.chat.receiverId,
         '[File]',
         clientUuid: clientUuid,
-        file: file,
-        type: type,
+        file: persistedFile,
+        fileName: originalFileName,
+        type: messageType,
         replyTo: _replyingToMessage?.id,
         duration: duration,
       );
+      final message = serverMessage.copyWith(localFilePath: localPath);
       if (mounted) {
         setState(() {
           _replyingToMessage = null;
@@ -918,8 +1139,19 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     );
   }
 
-  Future<void> _openFile(String url) async {
-    final uri = Uri.parse(ApiService.mediaUrl(url));
+  Future<void> _openFile(String pathOrUrl) async {
+    final localFile = File(pathOrUrl);
+    if (localFile.existsSync()) {
+      final result = await OpenFilex.open(localFile.path);
+      if (result.type == ResultType.done) return;
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(result.message)));
+      }
+      return;
+    }
+    final uri = Uri.parse(ApiService.mediaUrl(pathOrUrl));
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     } else if (mounted) {
@@ -930,12 +1162,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   }
 
   void _openMediaPreview(Message message) {
-    if (message.fileUrl == null || message.fileUrl!.isEmpty) return;
+    final hasRemote = message.fileUrl?.isNotEmpty ?? false;
+    final hasLocal = message.localFilePath?.isNotEmpty ?? false;
+    if (!hasRemote && !hasLocal) return;
     final url = ApiService.mediaUrl(message.fileUrl);
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => MediaPreviewScreen(
           url: url,
+          localPath: message.localFilePath,
           isVideo: message.type == 'video' || _isVideoUrl(url),
           caption: message.text == '[File]' ? null : message.text,
           heroTag: 'media-${message.id}',
@@ -1106,12 +1341,20 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     try {
       await _apiService.deleteMessage(message.id, deleteType);
       if (!mounted) return;
+      final localPath = message.localFilePath;
       setState(() {
         final index = _messages.indexWhere((m) => m.id == message.id);
         if (index == -1) return;
         if (deleteType == 'for_me') {
           unawaited(
-            _db.upsertMessage(_messages[index].copyWith(isDeletedForMe: true)),
+            _db
+                .upsertMessage(
+                  _messages[index].copyWith(
+                    isDeletedForMe: true,
+                    localFilePath: null,
+                  ),
+                )
+                .then((_) => _db.updateMessageLocalFilePath(message.id, null)),
           );
           _messages.removeAt(index);
           _pruneMessageKeys();
@@ -1120,11 +1363,17 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
             text: '',
             isDeletedForEveryone: true,
             fileUrl: '',
+            localFilePath: null,
           );
-          unawaited(_db.upsertMessage(_messages[index]));
+          unawaited(
+            _db
+                .upsertMessage(_messages[index])
+                .then((_) => _db.updateMessageLocalFilePath(message.id, null)),
+          );
           _pruneMessageKeys(keepMessageId: message.id);
         }
       });
+      unawaited(MediaStorageService.instance.deleteLocalFile(localPath));
     } on ApiException catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -1446,6 +1695,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     return MessageList(
       messages: _messages,
       isLoading: _isLoading,
+      isLoadingMore: _isLoadingMore,
       scrollController: _scrollController,
       highlightedMessageId: _highlightedMessageId,
       targetKeyForId: _messageTargetKey,
@@ -1719,6 +1969,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
 
 class MediaPreviewScreen extends StatefulWidget {
   final String url;
+  final String? localPath;
   final bool isVideo;
   final String? caption;
   final String heroTag;
@@ -1726,6 +1977,7 @@ class MediaPreviewScreen extends StatefulWidget {
   const MediaPreviewScreen({
     super.key,
     required this.url,
+    this.localPath,
     required this.isVideo,
     required this.heroTag,
     this.caption,
@@ -1744,9 +1996,10 @@ class _MediaPreviewScreenState extends State<MediaPreviewScreen> {
   void initState() {
     super.initState();
     if (widget.isVideo) {
-      final controller = VideoPlayerController.networkUrl(
-        Uri.parse(widget.url),
-      );
+      final localFile = File(widget.localPath ?? '');
+      final controller = localFile.existsSync()
+          ? VideoPlayerController.file(localFile)
+          : VideoPlayerController.networkUrl(Uri.parse(widget.url));
       _videoController = controller;
       _videoFuture = controller.initialize().then((_) {
         controller.play();
@@ -1805,20 +2058,34 @@ class _MediaPreviewScreenState extends State<MediaPreviewScreen> {
   }
 
   Widget _buildImage() {
+    final localFile = File(widget.localPath ?? '');
     return Hero(
       tag: widget.heroTag,
       child: InteractiveViewer(
         minScale: 1,
         maxScale: 4,
-        child: CachedNetworkImage(
-          imageUrl: widget.url,
-          fit: BoxFit.contain,
-          placeholder: (context, url) => const Center(
-            child: CircularProgressIndicator(color: Colors.white),
-          ),
-          errorWidget: (context, url, error) =>
-              const Icon(Icons.broken_image, color: Colors.white54, size: 56),
-        ),
+        child: localFile.existsSync()
+            ? Image.file(
+                localFile,
+                fit: BoxFit.contain,
+                errorBuilder: (context, error, stackTrace) => const Icon(
+                  Icons.broken_image,
+                  color: Colors.white54,
+                  size: 56,
+                ),
+              )
+            : CachedNetworkImage(
+                imageUrl: widget.url,
+                fit: BoxFit.contain,
+                placeholder: (context, url) => const Center(
+                  child: CircularProgressIndicator(color: Colors.white),
+                ),
+                errorWidget: (context, url, error) => const Icon(
+                  Icons.broken_image,
+                  color: Colors.white54,
+                  size: 56,
+                ),
+              ),
       ),
     );
   }

@@ -50,9 +50,12 @@ class _HomeScreenState extends State<HomeScreen>
       }
       setState(() {});
     });
-    Future.microtask(() {
+    Future.microtask(() async {
       if (mounted) {
-        Provider.of<ChatViewModel>(context, listen: false).fetchChats();
+        final chatViewModel = context.read<ChatViewModel>();
+        await chatViewModel.invalidateMessageFreshness();
+        if (!mounted) return;
+        chatViewModel.fetchChats();
         Provider.of<StatusViewModel>(context, listen: false).loadStatuses();
         unawaited(context.read<CallViewModel>().restoreCurrentCallIfNeeded());
         _syncContactsIfNeeded();
@@ -79,10 +82,9 @@ class _HomeScreenState extends State<HomeScreen>
     await SocketService().reconnect();
     if (!mounted) return;
     unawaited(context.read<CallViewModel>().handleAppResumed());
-    await Provider.of<ChatViewModel>(
-      context,
-      listen: false,
-    ).fetchChats(isSilent: true);
+    final chatViewModel = context.read<ChatViewModel>();
+    await chatViewModel.invalidateMessageFreshness();
+    await chatViewModel.fetchChats(isSilent: true, force: true);
     await _syncContactsIfNeeded();
   }
 

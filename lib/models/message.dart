@@ -45,6 +45,7 @@ class Message {
   final bool isMe;
   final String chatId;
   final String? fileUrl;
+  final String? localFilePath;
   final String type;
   final MessageStatus deliveryState;
   final String? replyToId;
@@ -78,6 +79,7 @@ class Message {
     required this.chatId,
     this.type = 'text',
     this.fileUrl,
+    this.localFilePath,
     this.deliveryState = MessageStatus.sent,
     this.replyToId,
     this.replyToText,
@@ -164,6 +166,7 @@ class Message {
       chatId: normalizedJson['chat'].toString(),
       type: type,
       fileUrl: fileUrl.isNotEmpty ? fileUrl : null,
+      localFilePath: normalizedJson['local_file_path']?.toString(),
       deliveryState: _parseState(normalizedJson['status']),
       replyToId: replyToId,
       replyToText: replyToText,
@@ -234,6 +237,7 @@ class Message {
     bool? isMe,
     String? chatId,
     String? fileUrl,
+    Object? localFilePath = _messageFieldUnset,
     String? type,
     MessageStatus? deliveryState,
     String? replyToId,
@@ -266,6 +270,9 @@ class Message {
       isMe: isMe ?? this.isMe,
       chatId: chatId ?? this.chatId,
       fileUrl: fileUrl ?? this.fileUrl,
+      localFilePath: identical(localFilePath, _messageFieldUnset)
+          ? this.localFilePath
+          : localFilePath as String?,
       type: type ?? this.type,
       deliveryState: deliveryState ?? this.deliveryState,
       replyToId: replyToId ?? this.replyToId,
@@ -301,6 +308,8 @@ class Message {
     return Map<String, dynamic>.from(json);
   }
 }
+
+const Object _messageFieldUnset = Object();
 
 class MessageStatusUpdate {
   final String messageId;

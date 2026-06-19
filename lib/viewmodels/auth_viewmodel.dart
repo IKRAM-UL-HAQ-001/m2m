@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/api_service.dart';
+import '../services/database_service.dart';
 import '../services/dio_client.dart';
+import '../services/media_storage_service.dart';
 import '../services/notification_service.dart';
 import '../services/websocket_service.dart';
 
@@ -198,6 +200,8 @@ class AuthViewModel extends ChangeNotifier {
 
   Future<void> logout() async {
     await TokenStorage.clearAll();
+    await MediaStorageService.instance.clearAllMedia();
+    await AppDatabase().clearDatabase();
     ApiService.currentUserId = null;
     _linkToken = null;
     _linkPollingTimer?.cancel();

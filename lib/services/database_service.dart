@@ -87,12 +87,27 @@ class MessagesTable extends Table {
   Set<Column> get primaryKey => {messageId};
 }
 
-@DriftDatabase(tables: [ChatsTable, MessagesTable])
-class AppDatabase extends _$AppDatabase {
-  AppDatabase() : super(_openConnection());
+@DataClassName('MessageSyncStateEntity')
+class MessageSyncStates extends Table {
+  TextColumn get chatId => text()();
+  TextColumn get nextCursor => text().nullable()();
+  BoolColumn get hasMore => boolean().withDefault(const Constant(true))();
+  DateTimeColumn get lastRefreshedAt => dateTime().nullable()();
 
   @override
-  int get schemaVersion => 2;
+  Set<Column> get primaryKey => {chatId};
+}
+
+@DriftDatabase(tables: [ChatsTable, MessagesTable, MessageSyncStates])
+class AppDatabase extends _$AppDatabase {
+  AppDatabase._internal() : super(_openConnection());
+
+  static final AppDatabase _instance = AppDatabase._internal();
+
+  factory AppDatabase() => _instance;
+
+  @override
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -102,6 +117,9 @@ class AppDatabase extends _$AppDatabase {
     onUpgrade: (m, from, to) async {
       if (from < 2) {
         await m.createTable(messagesTable);
+      }
+      if (from < 3) {
+        await m.createTable(messageSyncStates);
       }
     },
   );
@@ -140,19 +158,75 @@ class AppDatabase extends _$AppDatabase {
         );
   }
 
-  Future<List<Message>> getCachedMessages(String chatId) async {
-    final entities =
-        await (select(messagesTable)
-              ..where((t) => t.chatId.equals(chatId))
-              ..where((t) => t.isDeletedForMe.equals(false))
-              ..orderBy([
-                (t) => OrderingTerm(
-                  expression: t.createdAt,
-                  mode: OrderingMode.desc,
-                ),
-              ]))
-            .get();
+  Future<List<Message>> getCachedMessages(
+    String chatId, {
+    int limit = 30,
+    DateTime? before,
+  }) async {
+    final query = select(messagesTable)
+      ..where((t) => t.chatId.equals(chatId))
+      ..where((t) => t.isDeletedForMe.equals(false));
+    if (before != null) {
+      query.where((t) => t.createdAt.isSmallerThanValue(before));
+    }
+    query
+      ..orderBy([
+        (t) => OrderingTerm(expression: t.createdAt, mode: OrderingMode.desc),
+      ])
+      ..limit(limit);
+    final entities = await query.get();
     return entities.map((entity) => entity.toDomain()).toList();
+  }
+
+  Future<MessageSyncStateEntity?> getMessageSyncState(String chatId) {
+    return (select(
+      messageSyncStates,
+    )..where((t) => t.chatId.equals(chatId))).getSingleOrNull();
+  }
+
+  Future<void> recordMessageRefresh(
+    String chatId, {
+    required String? initialNextCursor,
+    required bool initialHasMore,
+  }) async {
+    final existing = await getMessageSyncState(chatId);
+    if (existing == null) {
+      await into(messageSyncStates).insert(
+        MessageSyncStatesCompanion.insert(
+          chatId: chatId,
+          nextCursor: Value(initialNextCursor),
+          hasMore: Value(initialHasMore),
+          lastRefreshedAt: Value(DateTime.now()),
+        ),
+      );
+      return;
+    }
+    await (update(
+      messageSyncStates,
+    )..where((t) => t.chatId.equals(chatId))).write(
+      MessageSyncStatesCompanion(lastRefreshedAt: Value(DateTime.now())),
+    );
+  }
+
+  Future<void> updateMessagePagination(
+    String chatId, {
+    required String? nextCursor,
+    required bool hasMore,
+  }) async {
+    await into(messageSyncStates).insertOnConflictUpdate(
+      MessageSyncStatesCompanion.insert(
+        chatId: chatId,
+        nextCursor: Value(nextCursor),
+        hasMore: Value(hasMore),
+        lastRefreshedAt: Value(DateTime.now()),
+      ),
+    );
+  }
+
+  Future<void> invalidateMessageRefreshes() async {
+    await update(
+      messageSyncStates,
+    ).write(const MessageSyncStatesCompanion(lastRefreshedAt: Value(null)));
   }
 
   Future<void> upsertMessages(String chatId, List<Message> messages) async {
@@ -163,13 +237,35 @@ class AppDatabase extends _$AppDatabase {
     });
   }
 
-  Future<void> upsertMessage(Message message) async {
+  Future<void> upsertMessage(
+    Message message, {
+    String? receiverId,
+    String? localFilePath,
+  }) async {
     await transaction(() async {
-      await _upsertMessage(message);
+      await _upsertMessage(
+        message,
+        receiverId: receiverId,
+        localFilePath: localFilePath,
+      );
     });
   }
 
-  Future<void> _upsertMessage(Message message) async {
+  Future<void> _upsertMessage(
+    Message message, {
+    String? receiverId,
+    String? localFilePath,
+  }) async {
+    final existing =
+        await (select(messagesTable)..where(
+              (t) =>
+                  t.messageId.equals(message.id) |
+                  t.clientUuid.equals(message.clientUuid),
+            ))
+            .getSingleOrNull();
+    final resolvedLocalPath =
+        localFilePath ?? message.localFilePath ?? existing?.localFilePath;
+    final resolvedReceiverId = receiverId ?? existing?.receiverId;
     if (message.clientUuid.isNotEmpty && message.clientUuid != message.id) {
       await (delete(messagesTable)..where(
             (t) =>
@@ -178,7 +274,20 @@ class AppDatabase extends _$AppDatabase {
           ))
           .go();
     }
-    await into(messagesTable).insertOnConflictUpdate(message.toEntity());
+    await into(messagesTable).insertOnConflictUpdate(
+      message.toEntity(
+        receiverId: resolvedReceiverId,
+        localFilePath: resolvedLocalPath,
+      ),
+    );
+  }
+
+  Future<void> updateMessageLocalFilePath(
+    String messageId,
+    String? localFilePath,
+  ) async {
+    await (update(messagesTable)..where((t) => t.messageId.equals(messageId)))
+        .write(MessagesTableCompanion(localFilePath: Value(localFilePath)));
   }
 
   Future<void> updateMessageStatus(
@@ -214,6 +323,9 @@ class AppDatabase extends _$AppDatabase {
 
   Future<void> deleteMessagesForChat(String chatId) async {
     await (delete(messagesTable)..where((t) => t.chatId.equals(chatId))).go();
+    await (delete(
+      messageSyncStates,
+    )..where((t) => t.chatId.equals(chatId))).go();
   }
 
   Future<void> clearMessages() async {
@@ -223,6 +335,7 @@ class AppDatabase extends _$AppDatabase {
   // Purge all cache data (e.g. on logout)
   Future<void> clearDatabase() async {
     await clearMessages();
+    await delete(messageSyncStates).go();
     await delete(chatsTable).go();
   }
 }
@@ -291,6 +404,7 @@ extension MessageEntityMapper on MessageEntity {
       isMe: isMe,
       chatId: chatId,
       fileUrl: fileUrl,
+      localFilePath: localFilePath,
       type: messageType,
       deliveryState: status,
       replyToId: replyToMessageId,

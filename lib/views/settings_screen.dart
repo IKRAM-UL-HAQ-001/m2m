@@ -449,6 +449,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     Navigator.pop(context); // Hide loading indicator
 
     if (success) {
+      await context.read<AuthViewModel>().logout();
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Account and data deleted successfully')),
       );

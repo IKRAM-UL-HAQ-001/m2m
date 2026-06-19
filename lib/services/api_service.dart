@@ -30,6 +30,22 @@ class ApiException implements Exception {
       : 'ApiException($statusCode, $code): $message';
 }
 
+class ChatPage {
+  const ChatPage({required this.items, required this.hasMore});
+
+  final List<Chat> items;
+  final bool hasMore;
+}
+
+class MessagePage {
+  const MessagePage({required this.items, required this.nextCursor});
+
+  final List<Message> items;
+  final String? nextCursor;
+
+  bool get hasMore => nextCursor != null && nextCursor!.isNotEmpty;
+}
+
 class ContactDiscoveryResult {
   final List<Map<String, dynamic>> onAppContacts;
   final List<Map<String, dynamic>> offAppContacts;
@@ -380,21 +396,32 @@ class ApiService {
     return _asMap(response.data);
   }
 
-  Future<List<Chat>> getChats({int offset = 0, int limit = 20}) async {
+  Future<ChatPage> getChatsPage({int offset = 0, int limit = 20}) async {
     final response = await _dio.get(
       '/api/chats/',
       queryParameters: {'offset': offset, 'limit': limit},
     );
     final data = _asMap(response.data);
     final results = List<dynamic>.from(data['results'] ?? const []);
-    return results
+    final chats = results
         .map((item) => Chat.fromJson(Map<String, dynamic>.from(item)))
         .toList();
+    return ChatPage(items: chats, hasMore: data['next'] != null);
   }
 
-  Future<List<Message>> getMessages(String chatId, {String? cursor}) async {
-    if (chatId.startsWith('new_')) return [];
-    final queryParameters = <String, dynamic>{'page_size': 30};
+  Future<List<Chat>> getChats({int offset = 0, int limit = 20}) async {
+    return (await getChatsPage(offset: offset, limit: limit)).items;
+  }
+
+  Future<MessagePage> getMessagesPage(
+    String chatId, {
+    String? cursor,
+    int pageSize = 30,
+  }) async {
+    if (chatId.startsWith('new_')) {
+      return const MessagePage(items: [], nextCursor: null);
+    }
+    final queryParameters = <String, dynamic>{'page_size': pageSize};
     if (cursor != null) queryParameters['cursor'] = cursor;
     final response = await _dio.get(
       '/api/chats/$chatId/messages/',
@@ -402,9 +429,18 @@ class ApiService {
     );
     final data = _asMap(response.data);
     final results = List<dynamic>.from(data['results'] ?? const []);
-    return results
+    final messages = results
         .map((item) => Message.fromJson(Map<String, dynamic>.from(item)))
         .toList();
+    final next = data['next']?.toString();
+    final nextCursor = next == null || next.isEmpty
+        ? null
+        : Uri.tryParse(next)?.queryParameters['cursor'];
+    return MessagePage(items: messages, nextCursor: nextCursor);
+  }
+
+  Future<List<Message>> getMessages(String chatId, {String? cursor}) async {
+    return (await getMessagesPage(chatId, cursor: cursor)).items;
   }
 
   Future<CallSession> startCall({
@@ -523,6 +559,7 @@ class ApiService {
     String text, {
     required String clientUuid,
     File? file,
+    String? fileName,
     String? type,
     String? replyTo,
     double? duration,
@@ -538,7 +575,7 @@ class ApiService {
       if (file != null)
         'file': await MultipartFile.fromFile(
           file.path,
-          filename: file.path.split('/').last,
+          filename: fileName ?? file.path.split('/').last,
         ),
     };
     if (replyTo != null) data['reply_to'] = replyTo;

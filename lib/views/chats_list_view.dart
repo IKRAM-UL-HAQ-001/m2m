@@ -55,16 +55,38 @@ class ChatsListView extends StatelessWidget {
                   _buildChatTile(context, chat, highlightQuery: searchQuery),
             );
           }
-          return RefreshIndicator(
-            onRefresh: () => chatViewModel.fetchChats(),
-            child: ListView.separated(
-              itemCount: chatViewModel.chats.length,
-              separatorBuilder: (context, index) =>
-                  const Divider(height: 0, indent: 72),
-              itemBuilder: (context, index) {
-                final chat = chatViewModel.chats[index];
-                return _buildChatTile(context, chat);
-              },
+          return NotificationListener<ScrollNotification>(
+            onNotification: (notification) {
+              if (notification.metrics.extentAfter < 400) {
+                chatViewModel.loadMoreChats();
+              }
+              return false;
+            },
+            child: RefreshIndicator(
+              onRefresh: () => chatViewModel.fetchChats(force: true),
+              child: ListView.separated(
+                itemCount:
+                    chatViewModel.chats.length +
+                    (chatViewModel.isLoadingMore ? 1 : 0),
+                separatorBuilder: (context, index) =>
+                    const Divider(height: 0, indent: 72),
+                itemBuilder: (context, index) {
+                  if (index == chatViewModel.chats.length) {
+                    return const Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Center(
+                        child: SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      ),
+                    );
+                  }
+                  final chat = chatViewModel.chats[index];
+                  return _buildChatTile(context, chat);
+                },
+              ),
             ),
           );
         },

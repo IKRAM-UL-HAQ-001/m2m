@@ -11,6 +11,7 @@ class MessageList extends StatelessWidget {
     super.key,
     required this.messages,
     required this.isLoading,
+    required this.isLoadingMore,
     required this.scrollController,
     required this.highlightedMessageId,
     required this.targetKeyForId,
@@ -25,6 +26,7 @@ class MessageList extends StatelessWidget {
 
   final List<Message> messages;
   final bool isLoading;
+  final bool isLoadingMore;
   final ScrollController scrollController;
   final String? highlightedMessageId;
   final GlobalKey? Function(String messageId) targetKeyForId;
@@ -64,8 +66,20 @@ class MessageList extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
               reverse: true,
               addAutomaticKeepAlives: false,
-              itemCount: messages.length,
+              itemCount: messages.length + (isLoadingMore ? 1 : 0),
               itemBuilder: (context, index) {
+                if (index == messages.length) {
+                  return const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 18),
+                    child: Center(
+                      child: SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
+                  );
+                }
                 final message = messages[index];
                 final showDate =
                     index == messages.length - 1 ||
