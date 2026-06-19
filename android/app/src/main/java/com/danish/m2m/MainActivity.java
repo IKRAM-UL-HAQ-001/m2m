@@ -24,6 +24,7 @@ public class MainActivity extends FlutterActivity {
     @Override
     public void configureFlutterEngine(@NonNull FlutterEngine flutterEngine) {
         super.configureFlutterEngine(flutterEngine);
+        ChimeMeetingPlugin.Companion.registerWith(flutterEngine, getApplicationContext());
         new MethodChannel(flutterEngine.getDartExecutor().getBinaryMessenger(), CHANNEL)
             .setMethodCallHandler((call, result) -> {
                 if (call.method.equals("startIncomingCallRingtone")) {

@@ -220,6 +220,11 @@ class SocketService extends ChangeNotifier {
     _channel?.sink.add(jsonEncode({'type': 'chat_opened', 'chat_id': chatId}));
   }
 
+  void sendCallVideoEvent(String eventType, String callId) {
+    if (_channel == null) return;
+    _channel?.sink.add(jsonEncode({'type': eventType, 'call_id': int.tryParse(callId) ?? callId}));
+  }
+
   void markDelivered(List<String> messageIds) {
     if (messageIds.isEmpty) return;
     final intIds = messageIds

@@ -1,11 +1,53 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:livekit_client/livekit_client.dart' as lk;
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../models/call_participant.dart';
 import '../../utils/constants.dart';
 import '../../viewmodels/call_viewmodel.dart';
 import 'call_screen_helpers.dart';
+
+class ChimeVideoView extends StatelessWidget {
+  final bool isLocal;
+
+  const ChimeVideoView({super.key, required this.isLocal});
+
+  @override
+  Widget build(BuildContext context) {
+    const String viewType = 'com.danish.m2m/chime_video';
+    final Map<String, dynamic> creationParams = <String, dynamic>{
+      'isLocal': isLocal,
+    };
+
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.android:
+        return AndroidView(
+          viewType: viewType,
+          layoutDirection: TextDirection.ltr,
+          creationParams: creationParams,
+          creationParamsCodec: const StandardMessageCodec(),
+        );
+      case TargetPlatform.iOS:
+        return UiKitView(
+          viewType: viewType,
+          layoutDirection: TextDirection.ltr,
+          creationParams: creationParams,
+          creationParamsCodec: const StandardMessageCodec(),
+        );
+      default:
+        return Container(
+          color: Colors.black,
+          child: const Center(
+            child: Text(
+              'Video not supported on this platform',
+              style: TextStyle(color: Colors.white),
+            ),
+          ),
+        );
+    }
+  }
+}
 
 class ActiveVideoCallScreen extends StatefulWidget {
   static const routeName = '/calls/active-video';
@@ -57,8 +99,6 @@ class _ActiveVideoCallScreenState extends State<ActiveVideoCallScreen> {
       builder: (context, vm, child) {
         final call = vm.currentCall;
         final participant = call == null ? null : otherParticipant(call);
-        final remoteVideoTrack = vm.remoteVideoTrack;
-        final localVideoTrack = vm.localVideoTrack;
         return Scaffold(
           backgroundColor: Colors.black,
           body: SafeArea(
@@ -67,8 +107,8 @@ class _ActiveVideoCallScreenState extends State<ActiveVideoCallScreen> {
                 Positioned.fill(
                   child: DecoratedBox(
                     decoration: const BoxDecoration(color: Colors.black),
-                    child: remoteVideoTrack != null
-                        ? lk.VideoTrackRenderer(remoteVideoTrack)
+                    child: vm.hasRemoteVideo
+                        ? ChimeVideoView(isLocal: false)
                         : _RemoteVideoPlaceholder(
                             name: participant?.name ?? 'Video call',
                             status: vm.callState == CallState.reconnecting
@@ -136,8 +176,8 @@ class _ActiveVideoCallScreenState extends State<ActiveVideoCallScreen> {
                       ],
                     ),
                     clipBehavior: Clip.antiAlias,
-                    child: localVideoTrack != null
-                        ? lk.VideoTrackRenderer(localVideoTrack)
+                    child: vm.hasLocalVideo
+                        ? ChimeVideoView(isLocal: true)
                         : Icon(
                             vm.isVideoEnabled
                                 ? Icons.person

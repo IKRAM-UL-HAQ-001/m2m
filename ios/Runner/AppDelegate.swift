@@ -11,6 +11,9 @@ import AVFoundation
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     GeneratedPluginRegistrant.register(with: self)
+    if let registrar = self.registrar(forPlugin: "ChimeMeetingPlugin") {
+      ChimeMeetingPlugin.register(with: registrar)
+    }
     if let controller = window?.rootViewController as? FlutterViewController {
       callAudioSession.attach(to: controller.binaryMessenger)
     }

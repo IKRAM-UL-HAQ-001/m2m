@@ -1,16 +1,17 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:livekit_client/livekit_client.dart' as lk;
 
 import '../models/call_event.dart';
 import '../models/call_participant.dart';
 import '../models/call_session.dart';
 import '../services/api_service.dart';
 import '../services/call_foreground_service.dart';
+import '../services/call_media_service.dart';
+import '../services/chime_call_service.dart';
 import '../services/ios_call_audio_session_service.dart';
-import '../services/livekit_call_service.dart';
 import '../services/notification_service.dart';
+import '../services/websocket_service.dart';
 
 enum CallState {
   idle,
@@ -35,7 +36,7 @@ class CallViewModel extends ChangeNotifier {
   static const Duration _terminalStateClearDelay = Duration(milliseconds: 1400);
 
   final ApiService _apiService = ApiService();
-  final LiveKitCallService _liveKitService = LiveKitCallService();
+  final CallMediaService _mediaService = ChimeCallService();
 
   CallState _currentState = CallState.idle;
   CallSession? _currentCall;
@@ -50,13 +51,13 @@ class CallViewModel extends ChangeNotifier {
     Duration.zero,
   );
   Timer? _durationTimer;
-  String? _connectingLiveKitCallId;
-  String? _connectedLiveKitCallId;
+  String? _connectingMediaCallId;
+  String? _connectedMediaCallId;
   Future<void>? _joinInFlight;
   Future<void>? _acceptInFlight;
   String? _acceptingCallId;
   DateTime? _acceptStartedAt;
-  StreamSubscription<lk.RoomDisconnectedEvent>? _liveKitDisconnectSubscription;
+  StreamSubscription<CallMediaEvent>? _mediaEventSubscription;
   StreamSubscription<IosCallAudioSessionEvent>? _iosAudioSessionSubscription;
   Timer? _reconnectGraceTimer;
   int _reconnectAttempts = 0;
@@ -65,9 +66,9 @@ class CallViewModel extends ChangeNotifier {
   Timer? _terminalStateClearTimer;
 
   CallViewModel() {
-    _liveKitService.addListener(_handleMediaStateChanged);
-    _liveKitDisconnectSubscription = _liveKitService.disconnectStream.listen(
-      _handleLiveKitDisconnected,
+    _mediaService.addListener(_handleMediaStateChanged);
+    _mediaEventSubscription = _mediaService.mediaEvents.listen(
+      _handleMediaEvent,
     );
     _iosAudioSessionSubscription = IosCallAudioSessionService.events.listen(
       _handleIosAudioSessionEvent,
@@ -78,9 +79,9 @@ class CallViewModel extends ChangeNotifier {
   CallState get callState => _currentState;
   CallSession? get currentCall => _currentCall;
   CallSession? get activeCallSession => _currentCall;
-  LiveKitCallService get liveKitService => _liveKitService;
-  lk.VideoTrack? get localVideoTrack => _liveKitService.localVideoTrack;
-  lk.VideoTrack? get remoteVideoTrack => _liveKitService.remoteVideoTrack;
+  CallMediaService get mediaService => _mediaService;
+  bool get hasLocalVideo => _mediaService.isLocalVideoActive;
+  bool get hasRemoteVideo => _mediaService.isRemoteVideoActive;
   List<CallSession> get callHistory => List.unmodifiable(_callHistory);
   bool get isMuted => _isMuted;
   bool get isSpeakerOn => _isSpeakerOn;
@@ -103,7 +104,7 @@ class CallViewModel extends ChangeNotifier {
       _currentState == CallState.reconnecting;
   String get lifecycleDiagnostics =>
       'callState=${_currentState.name} callId=${_currentCall?.id ?? 'none'} '
-      'liveKit=${_liveKitService.diagnosticState}';
+      'media=${_mediaService.diagnosticState}';
 
   String get formattedDuration {
     final duration = callDuration;
@@ -220,9 +221,9 @@ class CallViewModel extends ChangeNotifier {
       if (_manualDisconnectRequested || _isTerminalState(_currentState)) {
         return;
       }
-      debugPrint('LiveKit join started callId=$id');
+      debugPrint('Chime join started callId=$id');
       await joinCallAndConnect(call.id);
-      debugPrint('LiveKit join completed callId=$id');
+      debugPrint('Chime join completed callId=$id');
       _logAcceptElapsed('total accept-to-media-connected time', id);
     } on ApiException catch (error) {
       _isConnecting = false;
@@ -242,7 +243,7 @@ class CallViewModel extends ChangeNotifier {
     NotificationService().dismissIncomingCall(id.toString());
     _manualDisconnectRequested = true;
     _finishCall(CallState.rejected);
-    unawaited(_disconnectLiveKit());
+    unawaited(_disconnectMedia());
     unawaited(
       _finishWithApi(
         () => _apiService.rejectCall(id).timeout(_callActionTimeout),
@@ -261,7 +262,7 @@ class CallViewModel extends ChangeNotifier {
     NotificationService().dismissIncomingCall(id.toString());
     _manualDisconnectRequested = true;
     _finishCall(CallState.ended);
-    unawaited(_disconnectLiveKit());
+    unawaited(_disconnectMedia());
     unawaited(
       _finishWithApi(
         () => _apiService.cancelCall(id).timeout(_callActionTimeout),
@@ -280,7 +281,7 @@ class CallViewModel extends ChangeNotifier {
     NotificationService().dismissIncomingCall(id.toString());
     _manualDisconnectRequested = true;
     _finishCall(CallState.ended);
-    unawaited(_disconnectLiveKit());
+    unawaited(_disconnectMedia());
     unawaited(
       _finishWithApi(
         () => _apiService.endCall(id).timeout(_callActionTimeout),
@@ -296,19 +297,19 @@ class CallViewModel extends ChangeNotifier {
     final call = _currentCall;
     final id = callId ?? call?.id;
     if (call == null || id == null || id.isEmpty) return;
-    if (_connectedLiveKitCallId == id && _liveKitService.isConnected) return;
-    if (_connectingLiveKitCallId == id && _joinInFlight != null) {
+    if (_connectedMediaCallId == id && _mediaService.isConnected) return;
+    if (_connectingMediaCallId == id && _joinInFlight != null) {
       await _joinInFlight;
       return;
     }
 
-    _connectingLiveKitCallId = id;
+    _connectingMediaCallId = id;
     _joinInFlight = _joinCallAndConnect(call, id);
     try {
       await _joinInFlight;
     } finally {
       _joinInFlight = null;
-      _connectingLiveKitCallId = null;
+      _connectingMediaCallId = null;
     }
   }
 
@@ -432,7 +433,7 @@ class CallViewModel extends ChangeNotifier {
     _isMuted = !_isMuted;
     notifyListeners();
     unawaited(
-      _liveKitService.muteMicrophone(_isMuted).catchError(_handleMediaError),
+      _mediaService.setMuted(_isMuted).catchError(_handleMediaError),
     );
   }
 
@@ -440,8 +441,8 @@ class CallViewModel extends ChangeNotifier {
     _isSpeakerOn = !_isSpeakerOn;
     notifyListeners();
     unawaited(
-      _liveKitService
-          .setSpeakerphoneOn(_isSpeakerOn)
+      _mediaService
+          .setSpeakerEnabled(_isSpeakerOn)
           .catchError(_handleMediaError),
     );
   }
@@ -450,7 +451,15 @@ class CallViewModel extends ChangeNotifier {
     _isVideoEnabled = !_isVideoEnabled;
     notifyListeners();
     unawaited(
-      _liveKitService.enableCamera(_isVideoEnabled).catchError((error) {
+      _mediaService.setCameraEnabled(_isVideoEnabled).then((_) {
+        final callId = _currentCall?.id;
+        if (callId != null) {
+          SocketService().sendCallVideoEvent(
+            _isVideoEnabled ? 'call_video_enabled' : 'call_video_disabled',
+            callId,
+          );
+        }
+      }).catchError((error) {
         _isVideoEnabled = !_isVideoEnabled;
         _handleMediaError(error);
       }),
@@ -458,7 +467,7 @@ class CallViewModel extends ChangeNotifier {
   }
 
   void switchCamera() {
-    unawaited(_liveKitService.switchCamera().catchError(_handleMediaError));
+    unawaited(_mediaService.switchCamera().catchError(_handleMediaError));
   }
 
   void resetCall() {
@@ -474,8 +483,8 @@ class CallViewModel extends ChangeNotifier {
     _isConnecting = false;
     _errorMessage = null;
     _setCallDuration(Duration.zero);
-    _connectedLiveKitCallId = null;
-    _connectingLiveKitCallId = null;
+    _connectedMediaCallId = null;
+    _connectingMediaCallId = null;
     _acceptingCallId = null;
     _acceptInFlight = null;
     _acceptStartedAt = null;
@@ -486,7 +495,7 @@ class CallViewModel extends ChangeNotifier {
     _recoveringConnection = false;
     unawaited(CallForegroundService.stop());
     unawaited(IosCallAudioSessionService.deactivateAfterCall());
-    unawaited(_disconnectLiveKit());
+    unawaited(_disconnectMedia());
     notifyListeners();
   }
 
@@ -575,7 +584,7 @@ class CallViewModel extends ChangeNotifier {
     );
     if (_isTerminalState(state)) {
       NotificationService().dismissIncomingCall(_currentCall?.id);
-      unawaited(_disconnectLiveKit());
+      unawaited(_disconnectMedia());
       _scheduleTerminalStateClear();
     }
     _setState(state);
@@ -586,21 +595,20 @@ class CallViewModel extends ChangeNotifier {
     _errorMessage = null;
     _setState(CallState.connecting);
     try {
-      debugPrint('LiveKit credentials request started callId=$callId');
+      debugPrint('Chime credentials request started callId=$callId');
       final credentials = await _apiService.joinCall(int.parse(callId));
-      debugPrint('LiveKit credentials request completed callId=$callId');
+      debugPrint('Chime credentials request completed callId=$callId');
       await IosCallAudioSessionService.configureForCall(
         isVideo: call.callType == CallType.video,
         defaultToSpeaker: call.callType == CallType.video || _isSpeakerOn,
       );
-      debugPrint('LiveKit connect started callId=$callId');
-      await _liveKitService.connect(
-        serverUrl: credentials.serverUrl,
-        token: credentials.token,
+      debugPrint('Chime connect started callId=$callId');
+      await _mediaService.connect(
+        credentials: credentials.chimeCredentials!.toChannelMap(),
         videoEnabled: call.callType == CallType.video,
       );
-      debugPrint('LiveKit connect completed callId=$callId');
-      _connectedLiveKitCallId = callId;
+      debugPrint('Chime connect completed callId=$callId');
+      _connectedMediaCallId = callId;
       _manualDisconnectRequested = false;
       _reconnectAttempts = 0;
       _recoveringConnection = false;
@@ -642,14 +650,14 @@ class CallViewModel extends ChangeNotifier {
     } catch (_) {
       // The original media/join error should remain visible to the user.
     } finally {
-      await _disconnectLiveKit();
+      await _disconnectMedia();
     }
   }
 
-  Future<void> _disconnectLiveKit() async {
-    _connectedLiveKitCallId = null;
+  Future<void> _disconnectMedia() async {
+    _connectedMediaCallId = null;
     try {
-      await _liveKitService.disconnect();
+      await _mediaService.disconnect();
     } catch (_) {
       // The backend call state is the source of truth; disconnect failures should
       // not block ending or resetting the call.
@@ -657,31 +665,20 @@ class CallViewModel extends ChangeNotifier {
   }
 
   void _handleMediaStateChanged() {
-    if (_currentState == CallState.active && _liveKitService.isReconnecting) {
+    if (_currentState == CallState.active && _mediaService.isReconnecting) {
       _currentState = CallState.reconnecting;
     } else if (_currentState == CallState.reconnecting &&
-        _liveKitService.isConnected) {
+        _mediaService.isConnected) {
       _currentState = CallState.active;
     }
     notifyListeners();
   }
 
-  void _handleLiveKitDisconnected(lk.RoomDisconnectedEvent event) {
+  void _handleMediaEvent(CallMediaEvent event) {
     if (_manualDisconnectRequested || _currentCall == null) return;
-    if (!_isRecoverableDisconnect(event.reason)) return;
-    debugPrint(
-      'LiveKit disconnected unexpectedly callId=${_currentCall!.id} reason=${event.reason}',
-    );
-    _scheduleReconnectRecovery(event.reason?.name ?? 'disconnected');
-  }
-
-  bool _isRecoverableDisconnect(lk.DisconnectReason? reason) {
-    return reason == null ||
-        reason == lk.DisconnectReason.unknown ||
-        reason == lk.DisconnectReason.disconnected ||
-        reason == lk.DisconnectReason.signalingConnectionFailure ||
-        reason == lk.DisconnectReason.reconnectAttemptsExceeded ||
-        reason == lk.DisconnectReason.joinFailure;
+    if (event == CallMediaEvent.disconnected || event == CallMediaEvent.failed) {
+      _scheduleReconnectRecovery(event.name);
+    }
   }
 
   void _scheduleReconnectRecovery(String reason) {
@@ -692,11 +689,11 @@ class CallViewModel extends ChangeNotifier {
     _setState(CallState.reconnecting);
     _reconnectGraceTimer ??= Timer(_reconnectGracePeriod, () {
       debugPrint(
-        'LiveKit reconnect grace period expired callId=${_currentCall?.id}',
+        'Chime reconnect grace period expired callId=${_currentCall?.id}',
       );
       _failReconnect('Call connection lost.');
     });
-    unawaited(_recoverLiveKitConnection(reason));
+    unawaited(_recoverMediaConnection(reason));
   }
 
   Future<void> handleAppResumed() async {
@@ -727,7 +724,7 @@ class CallViewModel extends ChangeNotifier {
         return;
       }
       if ((latestCall.status == 'accepted' || latestCall.status == 'active') &&
-          !_liveKitService.isConnected &&
+          !_mediaService.isConnected &&
           !_recoveringConnection) {
         _scheduleReconnectRecovery('app_resumed');
       } else {
@@ -771,7 +768,7 @@ class CallViewModel extends ChangeNotifier {
       _setState(restoredState);
       if (call.status == 'accepted' || call.status == 'active') {
         _startTimerFromCall(call);
-        if (!_liveKitService.isConnected && !_recoveringConnection) {
+        if (!_mediaService.isConnected && !_recoveringConnection) {
           _scheduleReconnectRecovery('current_call_restore');
         }
       }
@@ -780,7 +777,7 @@ class CallViewModel extends ChangeNotifier {
     }
   }
 
-  Future<void> _recoverLiveKitConnection(String reason) async {
+  Future<void> _recoverMediaConnection(String reason) async {
     final call = _currentCall;
     if (call == null) return;
     final callId = int.tryParse(call.id);
@@ -794,7 +791,7 @@ class CallViewModel extends ChangeNotifier {
         !_isTerminalState(_currentState)) {
       _reconnectAttempts++;
       debugPrint(
-        'LiveKit reconnect attempt $_reconnectAttempts/$_maxReconnectAttempts callId=${call.id} reason=$reason',
+        'Chime reconnect attempt $_reconnectAttempts/$_maxReconnectAttempts callId=${call.id} reason=$reason',
       );
       await Future.delayed(_reconnectDelay);
       try {
@@ -816,14 +813,13 @@ class CallViewModel extends ChangeNotifier {
           defaultToSpeaker:
               _isSpeakerOn || latestCall.callType == CallType.video,
         );
-        await _liveKitService.connect(
-          serverUrl: credentials.serverUrl,
-          token: credentials.token,
+        await _mediaService.connect(
+          credentials: credentials.chimeCredentials!.toChannelMap(),
           videoEnabled:
               latestCall.callType == CallType.video && _isVideoEnabled,
         );
         await _restoreMediaState();
-        _connectedLiveKitCallId = latestCall.id;
+        _connectedMediaCallId = latestCall.id;
         _isConnecting = false;
         _errorMessage = null;
         _recoveringConnection = false;
@@ -834,7 +830,7 @@ class CallViewModel extends ChangeNotifier {
         return;
       } catch (error) {
         debugPrint(
-          'LiveKit reconnect attempt failed callId=${call.id} attempt=$_reconnectAttempts error=$error',
+          'Chime reconnect attempt failed callId=${call.id} attempt=$_reconnectAttempts error=$error',
         );
       }
     }
@@ -846,11 +842,11 @@ class CallViewModel extends ChangeNotifier {
 
   Future<void> _restoreMediaState() async {
     await IosCallAudioSessionService.reactivateForCall();
-    await _liveKitService.muteMicrophone(_isMuted);
+    await _mediaService.setMuted(_isMuted);
     if (_currentCall?.callType == CallType.video) {
-      await _liveKitService.enableCamera(_isVideoEnabled);
+      await _mediaService.setCameraEnabled(_isVideoEnabled);
     }
-    await _liveKitService.setSpeakerphoneOn(_isSpeakerOn);
+    await _mediaService.setSpeakerEnabled(_isSpeakerOn);
   }
 
   void _failReconnect(String message) {
@@ -917,7 +913,7 @@ class CallViewModel extends ChangeNotifier {
   Future<void> _handleIosAudioSessionRecovered() async {
     await IosCallAudioSessionService.reactivateForCall();
     await _restoreMediaState();
-    if (!_liveKitService.isConnected && !_recoveringConnection) {
+    if (!_mediaService.isConnected && !_recoveringConnection) {
       _scheduleReconnectRecovery('ios_audio_session_recovered');
     }
   }
@@ -959,7 +955,7 @@ class CallViewModel extends ChangeNotifier {
       'caller_busy' => 'You are already in a call.',
       'already_in_call' => 'You are already in a call.',
       'call_not_joinable' => 'Call already ended or is not ready.',
-      'livekit_not_configured' => 'Call server is not configured.',
+      'livekit_not_configured' || 'chime_not_configured' || 'call_server_not_configured' => 'Call server is not configured.',
       'permission_denied' => 'You do not have permission for this call.',
       'not_found' => 'Call not found.',
       'validation_error' => error.message,
@@ -1000,12 +996,12 @@ class CallViewModel extends ChangeNotifier {
     callDurationNotifier.dispose();
     _reconnectGraceTimer?.cancel();
     _terminalStateClearTimer?.cancel();
-    _liveKitDisconnectSubscription?.cancel();
+    _mediaEventSubscription?.cancel();
     _iosAudioSessionSubscription?.cancel();
-    _liveKitService.removeListener(_handleMediaStateChanged);
+    _mediaService.removeListener(_handleMediaStateChanged);
     unawaited(CallForegroundService.stop());
     unawaited(IosCallAudioSessionService.deactivateAfterCall());
-    _liveKitService.dispose();
+    _mediaService.dispose();
     super.dispose();
   }
 }

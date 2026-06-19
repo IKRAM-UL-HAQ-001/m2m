@@ -1,0 +1,24 @@
+# Set platform to iOS 13.0 as Amazon Chime SDK requires at least iOS 13.0
+platform :ios, '13.0'
+
+# CocoaPods targets start here.
+target 'Runner' do
+  use_frameworks!
+  use_modular_headers!
+
+  flutter_install_all_ios_pods File.dirname(File.expand_path(__FILE__))
+
+  # Amazon Chime SDK for iOS
+  pod 'AmazonChimeSDK'
+end
+
+post_install do |installer|
+  installer.pods_project.targets.each do |target|
+    flutter_additional_ios_build_settings(target)
+    
+    # Ensure deployment target is set correctly for all pod targets
+    target.build_configurations.each do |config|
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
+    end
+  end
+end

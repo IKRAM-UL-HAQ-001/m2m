@@ -74,4 +74,5 @@ flutter {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    implementation("software.aws.chimesdk:amazon-chime-sdk:0.21.0")
 }
