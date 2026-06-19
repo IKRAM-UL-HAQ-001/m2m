@@ -163,18 +163,29 @@ class AuthViewModel extends ChangeNotifier {
     String name,
     String? imagePath, {
     String? about,
+    bool removeProfilePicture = false,
   }) async {
-    final success = await _apiService.completeProfile(
+    final result = await _apiService.completeProfile(
       name,
       imagePath,
       about: about,
+      removeProfilePicture: removeProfilePicture,
     );
-    if (success) {
+    if (result.isNotEmpty) {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('isLoggedIn', true);
       await prefs.setString('user_name', name);
       if (about != null) {
         await prefs.setString('user_about', about);
+      }
+      final user = result['user'];
+      if (user is Map) {
+        final profilePicture = user['profile_picture']?.toString() ?? '';
+        if (profilePicture.isEmpty) {
+          await prefs.remove('user_profile_picture');
+        } else {
+          await prefs.setString('user_profile_picture', profilePicture);
+        }
       }
       _isAuthenticated = true;
       await _socketService.connect();

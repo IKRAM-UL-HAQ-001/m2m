@@ -22,6 +22,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _currentAbout = 'Available';
   String _profilePictureUrl = '';
   bool _isLoadingProfile = true;
+  bool _isUpdatingProfilePicture = false;
 
   @override
   void initState() {
@@ -39,6 +40,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _profilePictureUrl = prefs.getString('user_profile_picture') ?? '';
       _isLoadingProfile = false;
     });
+
+    try {
+      final result = await ApiService().getProfile();
+      final rawUser = result['user'];
+      if (rawUser is! Map) return;
+
+      final name = rawUser['name']?.toString() ?? '';
+      final phone = rawUser['phone_number']?.toString() ?? '';
+      final about = rawUser['about']?.toString() ?? 'Available';
+      final picture = rawUser['profile_picture']?.toString() ?? '';
+
+      await prefs.setString('user_name', name);
+      await prefs.setString('user_phone', phone);
+      await prefs.setString('user_about', about);
+      if (picture.isEmpty) {
+        await prefs.remove('user_profile_picture');
+      } else {
+        await prefs.setString('user_profile_picture', picture);
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _userName = name;
+        _phoneNumber = phone;
+        _currentAbout = about;
+        _profilePictureUrl = picture;
+      });
+    } catch (error) {
+      debugPrint('Unable to refresh profile: $error');
+    }
   }
 
   Future<void> _showEditNameDialog() async {
@@ -53,17 +84,99 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _pickAndUpdateProfilePicture() async {
+    if (_isUpdatingProfilePicture) return;
     final picker = ImagePicker();
     final pickedFile = await picker.pickImage(source: ImageSource.gallery);
     if (pickedFile != null) {
-      await _updateProfile(imagePath: pickedFile.path);
+      final previousPicture = _profilePictureUrl;
+      setState(() {
+        _profilePictureUrl = pickedFile.path;
+        _isUpdatingProfilePicture = true;
+      });
+      final success = await _updateProfile(imagePath: pickedFile.path);
+      if (!mounted) return;
+      setState(() {
+        if (!success) _profilePictureUrl = previousPicture;
+        _isUpdatingProfilePicture = false;
+      });
     }
   }
 
-  Future<void> _updateProfile({
+  Future<void> _handleProfilePictureTap() async {
+    if (_isUpdatingProfilePicture) return;
+    if (_profilePictureUrl.isEmpty) {
+      await _pickAndUpdateProfilePicture();
+      return;
+    }
+
+    final isLocal = !_profilePictureUrl.startsWith('http');
+    final ImageProvider previewProvider = isLocal
+        ? FileImage(File(_profilePictureUrl))
+        : CachedNetworkImageProvider(ApiService.mediaUrl(_profilePictureUrl));
+
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Profile photo',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 20),
+              CircleAvatar(
+                radius: 58,
+                backgroundColor: Colors.grey[200],
+                backgroundImage: previewProvider,
+              ),
+              const SizedBox(height: 20),
+              ListTile(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                leading: const Icon(
+                  Icons.photo_library_outlined,
+                  color: AppColors.primaryColor,
+                ),
+                title: const Text('Change photo'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _pickAndUpdateProfilePicture();
+                },
+              ),
+              ListTile(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                leading: const Icon(Icons.delete_outline, color: Colors.red),
+                title: const Text(
+                  'Remove photo',
+                  style: TextStyle(color: Colors.red),
+                ),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _removeProfilePicture();
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<bool> _updateProfile({
     String? name,
     String? imagePath,
     String? about,
+    bool removeProfilePicture = false,
   }) async {
     final authProvider = Provider.of<AuthViewModel>(context, listen: false);
     try {
@@ -73,6 +186,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         nameToSend,
         imagePath,
         about: aboutToSend,
+        removeProfilePicture: removeProfilePicture,
       );
       if (success && mounted) {
         final prefs = await SharedPreferences.getInstance();
@@ -82,20 +196,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
         if (about != null) {
           await prefs.setString('user_about', about);
         }
-        if (imagePath != null) {
-          // Profile picture URL will be updated on next fetch; clear local cache
-          await prefs.remove('user_profile_picture');
-        }
+        final savedPicture = prefs.getString('user_profile_picture') ?? '';
         setState(() {
           if (name != null) _userName = name;
           if (about != null) _currentAbout = about;
-          if (imagePath != null) _profilePictureUrl = imagePath;
+          if (imagePath != null || removeProfilePicture) {
+            _profilePictureUrl = savedPicture;
+          }
         });
         if (mounted) {
           ScaffoldMessenger.of(
             context,
           ).showSnackBar(const SnackBar(content: Text('Profile updated')));
         }
+        return true;
       }
     } on ApiException catch (e) {
       if (mounted) {
@@ -103,7 +217,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
           context,
         ).showSnackBar(SnackBar(content: Text(e.message)));
       }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Unable to update profile: $error')),
+        );
+      }
     }
+    return false;
+  }
+
+  Future<void> _removeProfilePicture() async {
+    if (_isUpdatingProfilePicture || _profilePictureUrl.isEmpty) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove profile photo?'),
+        content: const Text('Your current profile photo will be deleted.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('CANCEL'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('REMOVE', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _isUpdatingProfilePicture = true);
+    await _updateProfile(removeProfilePicture: true);
+    if (mounted) setState(() => _isUpdatingProfilePicture = false);
   }
 
   Future<void> _updateAbout(String about) async {
@@ -345,8 +492,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     child: Column(
                       children: [
                         GestureDetector(
-                          onTap: _pickAndUpdateProfilePicture,
+                          onTap: _isUpdatingProfilePicture
+                              ? null
+                              : _handleProfilePictureTap,
                           child: Stack(
+                            clipBehavior: Clip.none,
                             children: [
                               CircleAvatar(
                                 radius: 50,
@@ -384,6 +534,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   ),
                                 ),
                               ),
+                              if (_isUpdatingProfilePicture)
+                                const Positioned.fill(
+                                  child: DecoratedBox(
+                                    decoration: BoxDecoration(
+                                      color: Color(0x66000000),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: Center(
+                                      child: CircularProgressIndicator(
+                                        color: Colors.white,
+                                        strokeWidth: 3,
+                                      ),
+                                    ),
+                                  ),
+                                ),
                             ],
                           ),
                         ),

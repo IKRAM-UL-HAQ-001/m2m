@@ -344,16 +344,25 @@ class ApiService {
     return DateTime.now().difference(lastSyncTime) > const Duration(hours: 24);
   }
 
-  Future<bool> completeProfile(
+  Future<Map<String, dynamic>> getProfile() async {
+    final response = await _dio.get('/auth/complete-profile/');
+    return _asMap(response.data);
+  }
+
+  Future<Map<String, dynamic>> completeProfile(
     String name,
     String? imagePath, {
     String? about,
+    bool removeProfilePicture = false,
   }) async {
     if (imagePath == null) {
-      final body = {'name': name};
+      final body = <String, dynamic>{
+        'name': name,
+        if (removeProfilePicture) 'remove_profile_picture': true,
+      };
       if (about != null) body['about'] = about;
-      await _dio.post('/auth/complete-profile/', data: body);
-      return true;
+      final response = await _dio.post('/auth/complete-profile/', data: body);
+      return _asMap(response.data);
     }
 
     final data = <String, dynamic>{'name': name};
@@ -363,12 +372,12 @@ class ApiService {
       filename: imagePath.split('/').last,
     );
     final formData = FormData.fromMap(data);
-    await _uploadDio.post(
+    final response = await _uploadDio.post(
       '/auth/complete-profile/',
       data: formData,
       options: Options(extra: {'upload': true}),
     );
-    return true;
+    return _asMap(response.data);
   }
 
   Future<List<Chat>> getChats({int offset = 0, int limit = 20}) async {
