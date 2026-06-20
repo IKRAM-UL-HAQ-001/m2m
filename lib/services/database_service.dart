@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqlite3_flutter_libs/sqlite3_flutter_libs.dart';
 import '../models/chat.dart';
 import '../models/message.dart';
+import '../models/shared_media.dart';
 
 part 'database_service.g.dart';
 
@@ -176,6 +177,59 @@ class AppDatabase extends _$AppDatabase {
       ..limit(limit);
     final entities = await query.get();
     return entities.map((entity) => entity.toDomain()).toList();
+  }
+
+  Future<List<SharedMedia>> getCachedSharedMedia(
+    String userId, {
+    required String type,
+  }) async {
+    final chatRows = await (select(
+      chatsTable,
+    )..where((chat) => chat.receiverId.equals(userId))).get();
+    if (chatRows.isEmpty) return const [];
+
+    final chatIds = chatRows.map((chat) => chat.id).toList();
+    final query = select(messagesTable)
+      ..where((message) => message.chatId.isIn(chatIds))
+      ..where((message) => message.fileUrl.isNotNull())
+      ..where((message) => message.isDeleted.equals(false))
+      ..where((message) => message.isDeletedForMe.equals(false));
+    switch (type) {
+      case 'media':
+        query.where(
+          (message) =>
+              message.messageType.equals('image') |
+              message.messageType.equals('video'),
+        );
+      case 'docs':
+        query.where((message) => message.messageType.equals('document'));
+      case 'audio':
+        query.where((message) => message.messageType.equals('audio'));
+    }
+    query.orderBy([
+      (message) =>
+          OrderingTerm(expression: message.createdAt, mode: OrderingMode.desc),
+    ]);
+
+    final messages = await query.get();
+    return messages
+        .where((message) => message.fileUrl?.isNotEmpty ?? false)
+        .map(
+          (message) => SharedMedia(
+            id: message.messageId,
+            fileUrl: message.fileUrl!,
+            localFilePath: message.localFilePath,
+            thumbnailUrl: message.thumbnailUrl,
+            fileName: message.fileName ?? '',
+            fileSize: message.fileSize,
+            fileType: message.fileType ?? '',
+            messageType: message.messageType,
+            duration: message.duration,
+            isVoiceMessage: message.messageType == 'audio',
+            sentAt: message.createdAt,
+          ),
+        )
+        .toList();
   }
 
   Future<MessageSyncStateEntity?> getMessageSyncState(String chatId) {

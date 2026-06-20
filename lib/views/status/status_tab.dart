@@ -336,6 +336,7 @@ class _StatusAvatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasImage = imageUrl != null && imageUrl!.isNotEmpty;
+    final isLocalImage = hasImage && File(imageUrl!).existsSync();
     return SizedBox(
       width: 58,
       height: 58,
@@ -362,7 +363,12 @@ class _StatusAvatar extends StatelessWidget {
                 radius: 26,
                 backgroundColor: Colors.white,
                 backgroundImage: hasImage
-                    ? CachedNetworkImageProvider(ApiService.mediaUrl(imageUrl!))
+                    ? (isLocalImage
+                              ? FileImage(File(imageUrl!))
+                              : CachedNetworkImageProvider(
+                                  ApiService.mediaUrl(imageUrl!),
+                                ))
+                          as ImageProvider
                     : null,
                 child: hasImage
                     ? null

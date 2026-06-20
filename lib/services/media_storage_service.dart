@@ -55,6 +55,33 @@ class MediaStorageService {
     return target.path;
   }
 
+  Future<String> persistProfilePicture(File source) {
+    return persistOutgoing(
+      source: source,
+      mediaId: 'avatar_${DateTime.now().microsecondsSinceEpoch}',
+      mediaType: 'profile',
+      fileName: p.basename(source.path),
+    );
+  }
+
+  Future<String?> cacheProfilePicture(String path) {
+    final url = ApiService.mediaUrl(path);
+    if (url.isEmpty) return Future<String?>.value(null);
+    return cacheRemote(
+      url: url,
+      mediaId: 'avatar_${_stableHash(profileCacheKey(path))}',
+      mediaType: 'profile',
+      fileName: Uri.tryParse(url)?.pathSegments.lastOrNull,
+    );
+  }
+
+  String profileCacheKey(String path) {
+    final url = ApiService.mediaUrl(path);
+    final uri = Uri.tryParse(url);
+    if (uri == null) return url;
+    return uri.replace(query: null, fragment: null).toString();
+  }
+
   Future<String?> cacheMessage(Message message) {
     final localPath = message.localFilePath;
     if (localPath != null && localPath.isNotEmpty) {
@@ -191,5 +218,14 @@ class MediaStorageService {
   String _safeSegment(String value) {
     final safe = value.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
     return safe.isEmpty ? 'media' : safe;
+  }
+
+  String _stableHash(String value) {
+    var hash = 0x811c9dc5;
+    for (final byte in value.codeUnits) {
+      hash ^= byte;
+      hash = (hash * 0x01000193) & 0xffffffff;
+    }
+    return hash.toRadixString(16).padLeft(8, '0');
   }
 }

@@ -38,7 +38,13 @@ class StatusViewModel extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     final id = prefs.getString('user_id') ?? ApiService.currentUserId ?? 'me';
     final name = prefs.getString('user_name') ?? 'My status';
-    final picture = prefs.getString('user_profile_picture');
+    final localPicture = prefs.getString('user_profile_picture_local');
+    final picture =
+        localPicture != null &&
+            localPicture.isNotEmpty &&
+            File(localPicture).existsSync()
+        ? localPicture
+        : prefs.getString('user_profile_picture');
     return StatusGroup(
       owner: StatusOwner(
         id: id,
@@ -52,6 +58,10 @@ class StatusViewModel extends ChangeNotifier {
           : _myStatuses.first.createdAt,
       isMine: true,
     );
+  }
+
+  void refreshLocalProfile() {
+    notifyListeners();
   }
 
   Future<void> loadStatuses({bool isSilent = false}) async {

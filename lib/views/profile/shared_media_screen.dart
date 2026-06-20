@@ -1,11 +1,15 @@
+import 'dart:io';
+
 import 'package:audioplayers/audioplayers.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:open_filex/open_filex.dart';
 
 import '../../models/shared_media.dart';
 import '../../services/api_service.dart';
+import '../../services/database_service.dart';
 import '../../utils/constants.dart';
 
 class SharedMediaScreen extends StatelessWidget {
@@ -55,27 +59,12 @@ class MediaTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<List<SharedMedia>>(
-      future: ApiService().getSharedMedia(userId, type: 'media'),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return const _EmptyState(
-            icon: Icons.photo_library_outlined,
-            text: 'No media shared yet',
-          );
-        }
-        if (!snapshot.hasData) {
-          return const Center(
-            child: CircularProgressIndicator(color: AppColors.primaryColor),
-          );
-        }
-        final items = snapshot.data!;
-        if (items.isEmpty) {
-          return const _EmptyState(
-            icon: Icons.photo_library_outlined,
-            text: 'No media shared yet',
-          );
-        }
+    return _LocalFirstSharedMedia(
+      userId: userId,
+      type: 'media',
+      emptyIcon: Icons.photo_library_outlined,
+      emptyText: 'No media shared yet',
+      builder: (context, items) {
         return GridView.builder(
           padding: const EdgeInsets.all(2),
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -92,10 +81,7 @@ class MediaTab extends StatelessWidget {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  CachedNetworkImage(
-                    imageUrl: ApiService.mediaUrl(imageUrl),
-                    fit: BoxFit.cover,
-                  ),
+                  _mediaImage(media, imageUrl, BoxFit.cover),
                   if (media.messageType == 'video')
                     const Center(
                       child: Icon(
@@ -133,10 +119,7 @@ class MediaTab extends StatelessWidget {
             itemBuilder: (context, index) {
               final item = items[index];
               return Center(
-                child: CachedNetworkImage(
-                  imageUrl: ApiService.mediaUrl(item.fileUrl),
-                  fit: BoxFit.contain,
-                ),
+                child: _mediaImage(item, item.fileUrl, BoxFit.contain),
               );
             },
           ),
@@ -153,27 +136,12 @@ class DocsTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<List<SharedMedia>>(
-      future: ApiService().getSharedMedia(userId, type: 'docs'),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return const _EmptyState(
-            icon: Icons.description_outlined,
-            text: 'No documents shared yet',
-          );
-        }
-        if (!snapshot.hasData) {
-          return const Center(
-            child: CircularProgressIndicator(color: AppColors.primaryColor),
-          );
-        }
-        final items = snapshot.data!;
-        if (items.isEmpty) {
-          return const _EmptyState(
-            icon: Icons.description_outlined,
-            text: 'No documents shared yet',
-          );
-        }
+    return _LocalFirstSharedMedia(
+      userId: userId,
+      type: 'docs',
+      emptyIcon: Icons.description_outlined,
+      emptyText: 'No documents shared yet',
+      builder: (context, items) {
         return ListView.builder(
           itemCount: items.length,
           itemBuilder: (context, index) {
@@ -213,27 +181,12 @@ class AudioTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<List<SharedMedia>>(
-      future: ApiService().getSharedMedia(userId, type: 'audio'),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return const _EmptyState(
-            icon: Icons.audiotrack_outlined,
-            text: 'No audio shared yet',
-          );
-        }
-        if (!snapshot.hasData) {
-          return const Center(
-            child: CircularProgressIndicator(color: AppColors.primaryColor),
-          );
-        }
-        final items = snapshot.data!;
-        if (items.isEmpty) {
-          return const _EmptyState(
-            icon: Icons.audiotrack_outlined,
-            text: 'No audio shared yet',
-          );
-        }
+    return _LocalFirstSharedMedia(
+      userId: userId,
+      type: 'audio',
+      emptyIcon: Icons.audiotrack_outlined,
+      emptyText: 'No audio shared yet',
+      builder: (context, items) {
         return ListView.builder(
           itemCount: items.length,
           itemBuilder: (context, index) {
@@ -260,7 +213,7 @@ class AudioTab extends StatelessWidget {
                 '${_formatDuration(audio.duration)} · ${_formatDate(audio.sentAt)}',
                 style: const TextStyle(fontSize: 12, color: Colors.grey),
               ),
-              trailing: _AudioPlayButton(audioUrl: audio.fileUrl),
+              trailing: _AudioPlayButton(media: audio),
             );
           },
         );
@@ -312,9 +265,9 @@ class _DocIcon extends StatelessWidget {
 }
 
 class _AudioPlayButton extends StatefulWidget {
-  const _AudioPlayButton({required this.audioUrl});
+  const _AudioPlayButton({required this.media});
 
-  final String audioUrl;
+  final SharedMedia media;
 
   @override
   State<_AudioPlayButton> createState() => _AudioPlayButtonState();
@@ -342,7 +295,14 @@ class _AudioPlayButtonState extends State<_AudioPlayButton> {
           await _player.pause();
           if (mounted) setState(() => _isPlaying = false);
         } else {
-          await _player.play(UrlSource(widget.audioUrl));
+          final localPath = widget.media.localFilePath;
+          if (localPath != null && File(localPath).existsSync()) {
+            await _player.play(DeviceFileSource(localPath));
+          } else {
+            await _player.play(
+              UrlSource(ApiService.mediaUrl(widget.media.fileUrl)),
+            );
+          }
           if (mounted) setState(() => _isPlaying = true);
         }
       },
@@ -389,6 +349,111 @@ String _formatDuration(double? seconds) {
 }
 
 Future<void> _openFile(SharedMedia file) async {
-  final uri = Uri.parse(file.fileUrl);
+  final localPath = file.localFilePath;
+  if (localPath != null && File(localPath).existsSync()) {
+    await OpenFilex.open(localPath);
+    return;
+  }
+  final uri = Uri.parse(ApiService.mediaUrl(file.fileUrl));
   await launchUrl(uri, mode: LaunchMode.externalApplication);
+}
+
+Widget _mediaImage(SharedMedia media, String remoteUrl, BoxFit fit) {
+  final localPath = media.localFilePath;
+  if (localPath != null && File(localPath).existsSync()) {
+    return Image.file(File(localPath), fit: fit);
+  }
+  return CachedNetworkImage(imageUrl: ApiService.mediaUrl(remoteUrl), fit: fit);
+}
+
+typedef _SharedMediaBuilder =
+    Widget Function(BuildContext context, List<SharedMedia> items);
+
+class _LocalFirstSharedMedia extends StatefulWidget {
+  const _LocalFirstSharedMedia({
+    required this.userId,
+    required this.type,
+    required this.emptyIcon,
+    required this.emptyText,
+    required this.builder,
+  });
+
+  final String userId;
+  final String type;
+  final IconData emptyIcon;
+  final String emptyText;
+  final _SharedMediaBuilder builder;
+
+  @override
+  State<_LocalFirstSharedMedia> createState() => _LocalFirstSharedMediaState();
+}
+
+class _LocalFirstSharedMediaState extends State<_LocalFirstSharedMedia> {
+  List<SharedMedia> _items = const [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final localItems = await AppDatabase().getCachedSharedMedia(
+        widget.userId,
+        type: widget.type,
+      );
+      if (!mounted) return;
+      if (localItems.isNotEmpty) {
+        setState(() {
+          _items = localItems;
+          _isLoading = false;
+        });
+      }
+
+      final serverItems = await ApiService().getSharedMedia(
+        widget.userId,
+        type: widget.type,
+      );
+      if (!mounted) return;
+      final localById = {for (final item in localItems) item.id: item};
+      final merged = serverItems.map((item) {
+        final cached = localById[item.id];
+        if (cached == null) return item;
+        return SharedMedia(
+          id: item.id,
+          fileUrl: item.fileUrl,
+          localFilePath: cached.localFilePath,
+          thumbnailUrl: item.thumbnailUrl,
+          fileName: item.fileName,
+          fileSize: item.fileSize,
+          fileType: item.fileType,
+          messageType: item.messageType,
+          duration: item.duration,
+          isVoiceMessage: item.isVoiceMessage,
+          sentAt: item.sentAt,
+        );
+      }).toList();
+      setState(() {
+        _items = merged;
+        _isLoading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(color: AppColors.primaryColor),
+      );
+    }
+    if (_items.isEmpty) {
+      return _EmptyState(icon: widget.emptyIcon, text: widget.emptyText);
+    }
+    return widget.builder(context, _items);
+  }
 }

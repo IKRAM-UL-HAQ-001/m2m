@@ -1,6 +1,7 @@
 class SharedMedia {
   final String id;
   final String fileUrl;
+  final String? localFilePath;
   final String? thumbnailUrl;
   final String fileName;
   final int? fileSize;
@@ -13,6 +14,7 @@ class SharedMedia {
   const SharedMedia({
     required this.id,
     required this.fileUrl,
+    this.localFilePath,
     this.thumbnailUrl,
     required this.fileName,
     this.fileSize,
@@ -29,6 +31,7 @@ class SharedMedia {
     return SharedMedia(
       id: json['id'].toString(),
       fileUrl: fileUrl,
+      localFilePath: json['local_file_path']?.toString(),
       thumbnailUrl: json['thumbnail_url']?.toString(),
       fileName: fileName.isNotEmpty ? fileName : fileUrl.split('/').last,
       fileSize: int.tryParse((json['file_size'] ?? '').toString()),

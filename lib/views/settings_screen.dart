@@ -6,7 +6,9 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/constants.dart';
 import '../services/api_service.dart';
+import '../services/media_storage_service.dart';
 import '../viewmodels/auth_viewmodel.dart';
+import '../viewmodels/status_viewmodel.dart';
 import 'login_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -32,12 +34,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _loadProfile() async {
     final prefs = await SharedPreferences.getInstance();
+    final savedRemotePicture = prefs.getString('user_profile_picture') ?? '';
+    final savedLocalPicture =
+        prefs.getString('user_profile_picture_local') ?? '';
+    final hasSavedLocalPicture =
+        savedLocalPicture.isNotEmpty && File(savedLocalPicture).existsSync();
+    if (!hasSavedLocalPicture && savedLocalPicture.isNotEmpty) {
+      await prefs.remove('user_profile_picture_local');
+      await prefs.remove('user_profile_picture_cache_key');
+    }
     if (!mounted) return;
     setState(() {
       _userName = prefs.getString('user_name') ?? '';
       _phoneNumber = prefs.getString('user_phone') ?? '';
       _currentAbout = prefs.getString('user_about') ?? 'Available';
-      _profilePictureUrl = prefs.getString('user_profile_picture') ?? '';
+      _profilePictureUrl = hasSavedLocalPicture
+          ? savedLocalPicture
+          : savedRemotePicture;
       _isLoadingProfile = false;
     });
 
@@ -50,12 +63,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final phone = rawUser['phone_number']?.toString() ?? '';
       final about = rawUser['about']?.toString() ?? 'Available';
       final picture = rawUser['profile_picture']?.toString() ?? '';
+      final storedPictureKey = prefs.getString(
+        'user_profile_picture_cache_key',
+      );
+      final previousPictureKey =
+          storedPictureKey ??
+          (hasSavedLocalPicture && savedRemotePicture.isNotEmpty
+              ? MediaStorageService.instance.profileCacheKey(savedRemotePicture)
+              : null);
+      final pictureKey = picture.isEmpty
+          ? ''
+          : MediaStorageService.instance.profileCacheKey(picture);
 
       await prefs.setString('user_name', name);
       await prefs.setString('user_phone', phone);
       await prefs.setString('user_about', about);
       if (picture.isEmpty) {
         await prefs.remove('user_profile_picture');
+        await prefs.remove('user_profile_picture_local');
+        await prefs.remove('user_profile_picture_cache_key');
+        await MediaStorageService.instance.deleteLocalFile(
+          hasSavedLocalPicture ? savedLocalPicture : null,
+        );
       } else {
         await prefs.setString('user_profile_picture', picture);
       }
@@ -65,8 +94,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _userName = name;
         _phoneNumber = phone;
         _currentAbout = about;
-        _profilePictureUrl = picture;
+        if (picture.isEmpty) {
+          _profilePictureUrl = '';
+        } else if (!hasSavedLocalPicture || previousPictureKey != pictureKey) {
+          _profilePictureUrl = picture;
+        }
       });
+
+      if (picture.isNotEmpty &&
+          (!hasSavedLocalPicture || previousPictureKey != pictureKey)) {
+        final cachedPicture = await MediaStorageService.instance
+            .cacheProfilePicture(picture);
+        if (cachedPicture != null) {
+          await prefs.setString('user_profile_picture_local', cachedPicture);
+          await prefs.setString('user_profile_picture_cache_key', pictureKey);
+          if (hasSavedLocalPicture && savedLocalPicture != cachedPicture) {
+            await MediaStorageService.instance.deleteLocalFile(
+              savedLocalPicture,
+            );
+          }
+          if (mounted) {
+            setState(() => _profilePictureUrl = cachedPicture);
+          }
+        }
+      } else if (picture.isNotEmpty &&
+          hasSavedLocalPicture &&
+          storedPictureKey == null) {
+        await prefs.setString('user_profile_picture_cache_key', pictureKey);
+      }
     } catch (error) {
       debugPrint('Unable to refresh profile: $error');
     }
@@ -109,7 +164,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       return;
     }
 
-    final isLocal = !_profilePictureUrl.startsWith('http');
+    final isLocal = File(_profilePictureUrl).existsSync();
     final ImageProvider previewProvider = isLocal
         ? FileImage(File(_profilePictureUrl))
         : CachedNetworkImageProvider(ApiService.mediaUrl(_profilePictureUrl));
@@ -197,14 +252,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
           await prefs.setString('user_about', about);
         }
         final savedPicture = prefs.getString('user_profile_picture') ?? '';
+        final savedLocalPicture =
+            prefs.getString('user_profile_picture_local') ?? '';
+        final displayPicture =
+            savedLocalPicture.isNotEmpty && File(savedLocalPicture).existsSync()
+            ? savedLocalPicture
+            : savedPicture;
         setState(() {
           if (name != null) _userName = name;
           if (about != null) _currentAbout = about;
           if (imagePath != null || removeProfilePicture) {
-            _profilePictureUrl = savedPicture;
+            _profilePictureUrl = displayPicture;
           }
         });
         if (mounted) {
+          context.read<StatusViewModel>().refreshLocalProfile();
           ScaffoldMessenger.of(
             context,
           ).showSnackBar(const SnackBar(content: Text('Profile updated')));
@@ -471,9 +533,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final bool hasLocalImage =
-        _profilePictureUrl.isNotEmpty && !_profilePictureUrl.startsWith('http');
+        _profilePictureUrl.isNotEmpty && File(_profilePictureUrl).existsSync();
     final bool hasNetworkImage =
-        _profilePictureUrl.isNotEmpty && _profilePictureUrl.startsWith('http');
+        _profilePictureUrl.isNotEmpty && !hasLocalImage;
 
     return Scaffold(
       appBar: AppBar(

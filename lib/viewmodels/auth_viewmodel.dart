@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -141,10 +142,9 @@ class AuthViewModel extends ChangeNotifier {
         }
         if (result['user']['profile_picture'] != null &&
             result['user']['profile_picture'].toString().isNotEmpty) {
-          await prefs.setString(
-            'user_profile_picture',
-            result['user']['profile_picture'].toString(),
-          );
+          final picture = result['user']['profile_picture'].toString();
+          await prefs.setString('user_profile_picture', picture);
+          _cacheProfilePictureInBackground(picture);
         }
       }
       if (result['user'] != null &&
@@ -167,14 +167,32 @@ class AuthViewModel extends ChangeNotifier {
     String? about,
     bool removeProfilePicture = false,
   }) async {
-    final result = await _apiService.completeProfile(
-      name,
-      imagePath,
-      about: about,
-      removeProfilePicture: removeProfilePicture,
-    );
+    final isCompletingInitialProfile = !_isAuthenticated;
+    String? persistedImagePath;
+    if (imagePath != null) {
+      persistedImagePath = await MediaStorageService.instance
+          .persistProfilePicture(File(imagePath));
+    }
+
+    late final Map<String, dynamic> result;
+    try {
+      result = await _apiService.completeProfile(
+        name,
+        imagePath,
+        about: about,
+        removeProfilePicture: removeProfilePicture,
+      );
+    } catch (_) {
+      if (persistedImagePath != null) {
+        await MediaStorageService.instance.deleteLocalFile(persistedImagePath);
+      }
+      rethrow;
+    }
     if (result.isNotEmpty) {
       final prefs = await SharedPreferences.getInstance();
+      final previousLocalPicture = prefs.getString(
+        'user_profile_picture_local',
+      );
       await prefs.setBool('isLoggedIn', true);
       await prefs.setString('user_name', name);
       if (about != null) {
@@ -185,13 +203,40 @@ class AuthViewModel extends ChangeNotifier {
         final profilePicture = user['profile_picture']?.toString() ?? '';
         if (profilePicture.isEmpty) {
           await prefs.remove('user_profile_picture');
+          await prefs.remove('user_profile_picture_local');
+          await prefs.remove('user_profile_picture_cache_key');
+          await MediaStorageService.instance.deleteLocalFile(
+            previousLocalPicture,
+          );
+          if (persistedImagePath != previousLocalPicture) {
+            await MediaStorageService.instance.deleteLocalFile(
+              persistedImagePath,
+            );
+          }
         } else {
           await prefs.setString('user_profile_picture', profilePicture);
+          if (persistedImagePath != null) {
+            await prefs.setString(
+              'user_profile_picture_local',
+              persistedImagePath,
+            );
+            await prefs.setString(
+              'user_profile_picture_cache_key',
+              MediaStorageService.instance.profileCacheKey(profilePicture),
+            );
+            if (previousLocalPicture != persistedImagePath) {
+              await MediaStorageService.instance.deleteLocalFile(
+                previousLocalPicture,
+              );
+            }
+          }
         }
       }
       _isAuthenticated = true;
-      await _socketService.connect();
-      await NotificationService.getTokenAndSave();
+      if (isCompletingInitialProfile) {
+        await _socketService.connect();
+        await NotificationService.getTokenAndSave();
+      }
       notifyListeners();
       return true;
     }
@@ -244,15 +289,22 @@ class AuthViewModel extends ChangeNotifier {
             refresh: status['refresh'].toString(),
           );
           if (status['user'] != null) {
-            final uid = status['user']['id'].toString();
+            final user = Map<String, dynamic>.from(status['user'] as Map);
+            final uid = user['id'].toString();
             ApiService.currentUserId = uid;
             await prefs.setString('user_id', uid);
-            if (status['user']['about'] != null &&
-                status['user']['about'].toString().isNotEmpty) {
-              await prefs.setString(
-                'user_about',
-                status['user']['about'].toString(),
-              );
+            final phone = user['phone_number']?.toString() ?? '';
+            final name = user['name']?.toString() ?? '';
+            final about = user['about']?.toString() ?? '';
+            final picture = user['profile_picture']?.toString() ?? '';
+            if (phone.isNotEmpty) await prefs.setString('user_phone', phone);
+            if (name.isNotEmpty) await prefs.setString('user_name', name);
+            if (about.isNotEmpty) {
+              await prefs.setString('user_about', about);
+            }
+            if (picture.isNotEmpty) {
+              await prefs.setString('user_profile_picture', picture);
+              _cacheProfilePictureInBackground(picture);
             }
             await prefs.setBool('isLoggedIn', true);
             _isAuthenticated = true;
@@ -273,6 +325,27 @@ class AuthViewModel extends ChangeNotifier {
 
   Future<bool> linkDevice(String token) async {
     return _apiService.activateLinkToken(token);
+  }
+
+  void _cacheProfilePictureInBackground(String picture) {
+    unawaited(() async {
+      final cached = await MediaStorageService.instance.cacheProfilePicture(
+        picture,
+      );
+      if (cached == null) return;
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getString('user_profile_picture') != picture) return;
+      final previous = prefs.getString('user_profile_picture_local');
+      await prefs.setString('user_profile_picture_local', cached);
+      await prefs.setString(
+        'user_profile_picture_cache_key',
+        MediaStorageService.instance.profileCacheKey(picture),
+      );
+      if (previous != cached) {
+        await MediaStorageService.instance.deleteLocalFile(previous);
+      }
+      notifyListeners();
+    }());
   }
 
   @override
