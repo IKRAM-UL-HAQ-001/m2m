@@ -73,6 +73,8 @@ class SocketService extends ChangeNotifier {
       StreamController<Map<String, dynamic>>.broadcast();
   final StreamController<Map<String, dynamic>> _statusEventController =
       StreamController<Map<String, dynamic>>.broadcast();
+  final StreamController<Map<String, dynamic>> _presenceController =
+      StreamController<Map<String, dynamic>>.broadcast();
   final StreamController<CallEvent> _callEventController =
       StreamController<CallEvent>.broadcast();
 
@@ -87,6 +89,8 @@ class SocketService extends ChangeNotifier {
   Stream<Map<String, dynamic>> get reactionStream => _reactionController.stream;
   Stream<Map<String, dynamic>> get statusEventStream =>
       _statusEventController.stream;
+  Stream<Map<String, dynamic>> get presenceStream =>
+      _presenceController.stream;
   Stream<CallEvent> get callEventStream => _callEventController.stream;
 
   Future<void> connect() async {
@@ -185,6 +189,12 @@ class SocketService extends ChangeNotifier {
         _statusEventController.add(payload);
         return;
       }
+      if (event == 'presence_update') {
+        _presenceController.add(
+          Map<String, dynamic>.from(rawData['payload'] ?? const {}),
+        );
+        return;
+      }
       if (_callEventNames.contains(event)) {
         _callEventController.add(CallEvent.fromJson(rawData));
         return;
@@ -249,6 +259,19 @@ class SocketService extends ChangeNotifier {
     _channel?.sink.add(
       jsonEncode({
         'type': eventType,
+        'call_id': int.tryParse(callId) ?? callId,
+      }),
+    );
+  }
+
+  /// Tells the backend the local device is actually ringing for [callId], so
+  /// the caller's status can flip from "Calling..." to "Ringing...". No-op if
+  /// the socket is down (the caller then correctly stays on "Calling...").
+  void sendCallRingingAck(String callId) {
+    if (_channel == null) return;
+    _channel?.sink.add(
+      jsonEncode({
+        'type': 'call_ringing',
         'call_id': int.tryParse(callId) ?? callId,
       }),
     );
@@ -347,6 +370,7 @@ class SocketService extends ChangeNotifier {
     _messageDeleteController.close();
     _reactionController.close();
     _statusEventController.close();
+    _presenceController.close();
     _callEventController.close();
     _channelSubscription?.cancel();
     _channel?.sink.close();

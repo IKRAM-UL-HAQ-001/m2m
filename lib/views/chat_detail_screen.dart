@@ -108,10 +108,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   StreamSubscription<Map<String, dynamic>>? _editSubscription;
   StreamSubscription<Map<String, dynamic>>? _deleteSubscription;
   StreamSubscription<Map<String, dynamic>>? _reactionSubscription;
+  StreamSubscription<Map<String, dynamic>>? _presenceSubscription;
+  Timer? _presencePollTimer;
+  bool _isOnline = false;
 
   @override
   void initState() {
     super.initState();
+    _isOnline = widget.chat.isOnline;
     _chatViewModel = context.read<ChatViewModel>();
     _currentChatId = widget.chat.id;
     _chatViewModel.setActiveChat(_currentChatId);
@@ -122,6 +126,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     _loadDownloadedFiles();
     _loadMessages();
     _listenToSocket();
+    _listenToPresence();
     if (!_currentChatId!.startsWith('new_')) {
       SocketService().sendChatOpened(_currentChatId!);
       _markCurrentChatRead();
@@ -146,6 +151,41 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       begin: 0.3,
       end: 1.0,
     ).animate(_blinkController);
+  }
+
+  void _updateOnline(bool isOnline) {
+    if (!mounted || _isOnline == isOnline) return;
+    setState(() => _isOnline = isOnline);
+  }
+
+  // Keep the header's online indicator accurate in real time. Presence pushes
+  // (sent when the peer connects/disconnects) update it instantly; a periodic
+  // poll is the safety net for abrupt disconnects that never fire a clean
+  // close on the server, where the peer's presence simply expires by TTL.
+  void _listenToPresence() {
+    final receiverId = widget.chat.receiverId;
+    if (receiverId.isEmpty) return;
+    _presenceSubscription = SocketService().presenceStream.listen((data) {
+      if (data['user_id']?.toString() == receiverId) {
+        _updateOnline(data['is_online'] == true);
+      }
+    });
+    _presencePollTimer = Timer.periodic(
+      const Duration(seconds: 10),
+      (_) => _pollPresence(),
+    );
+    unawaited(_pollPresence());
+  }
+
+  Future<void> _pollPresence() async {
+    final receiverId = widget.chat.receiverId;
+    if (receiverId.isEmpty || receiverId.startsWith('new_')) return;
+    try {
+      final presence = await ApiService().getPresence(receiverId);
+      _updateOnline(presence['is_online'] == true);
+    } catch (_) {
+      // Transient failures shouldn't flip the indicator; keep the last value.
+    }
   }
 
   void _listenToSocket() {
@@ -254,6 +294,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     _editSubscription?.cancel();
     _deleteSubscription?.cancel();
     _reactionSubscription?.cancel();
+    _presenceSubscription?.cancel();
+    _presencePollTimer?.cancel();
     _typingClearTimer?.cancel();
     _typingDebounceTimer?.cancel();
     _highlightTimer?.cancel();
@@ -1564,7 +1606,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
                       ? Icon(Icons.person, size: 20, color: Colors.grey[600])
                       : null,
                 ),
-                if (widget.chat.isOnline)
+                if (_isOnline)
                   Positioned(
                     bottom: 0,
                     right: 0,
@@ -1603,7 +1645,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
                       'typing...',
                       style: TextStyle(color: Colors.white70, fontSize: 12),
                     )
-                  else if (widget.chat.isOnline)
+                  else if (_isOnline)
                     const Text(
                       'online',
                       style: TextStyle(color: Colors.white70, fontSize: 12),
@@ -1686,7 +1728,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       phone: widget.chat.phone,
       about: widget.chat.about,
       avatarUrl: widget.chat.avatarUrl,
-      isOnline: widget.chat.isOnline,
+      isOnline: _isOnline,
       onMessage: () {},
     );
   }

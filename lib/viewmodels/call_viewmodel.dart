@@ -336,6 +336,9 @@ class CallViewModel extends ChangeNotifier {
           _currentCall = call;
           _prepareNewCall(call.callType);
           _setState(CallState.incoming);
+          // Acknowledge that this device is now ringing so the caller's status
+          // advances from "Calling..." to "Ringing...".
+          SocketService().sendCallRingingAck(call.id);
         } else {
           debugPrint(
             'Call invite ignored while busy incomingCallId=${call.id} '
@@ -374,6 +377,7 @@ class CallViewModel extends ChangeNotifier {
     _currentCall = session;
     _prepareNewCall(session.callType);
     _setState(CallState.incoming);
+    SocketService().sendCallRingingAck(session.id);
   }
 
   void markActiveCallScreenPushed() {
