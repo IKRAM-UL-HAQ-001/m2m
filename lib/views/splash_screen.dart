@@ -85,6 +85,12 @@ class _SplashScreenState extends State<SplashScreen> {
                 color: AppColors.primaryColor,
               ),
             ),
+            const SizedBox(height: 24),
+            const SizedBox(
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(strokeWidth: 2.5),
+            ),
             const Spacer(),
             const Text(
               "from",

@@ -32,16 +32,10 @@ void main() async {
   debugPrint('[startup] main started');
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Firebase and register FCM background handler early to handle background/killed notifications.
-  try {
-    debugPrint('[startup] Firebase early init started');
-    await Firebase.initializeApp();
-    debugPrint('[startup] Firebase early init completed');
-    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
-    debugPrint('[startup] Background FCM handler registered in main');
-  } catch (e) {
-    debugPrint('[startup] Firebase early initialization skipped: $e');
-  }
+  // Register the top-level handler synchronously, but do not block Flutter's
+  // first frame on Firebase or secure-storage I/O. The visible splash screen
+  // owns startup work while background isolates initialize Firebase themselves.
+  FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
@@ -57,7 +51,6 @@ void main() async {
       DeviceOrientation.portraitDown,
     ]),
   );
-  await TokenStorage.init();
   DioClient().initialize();
 
   debugPrint('[startup] runApp called');

@@ -33,6 +33,7 @@ void main() {
     );
 
     expect(find.text('M2M'), findsNWidgets(2));
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
     await tester.pump(const Duration(seconds: 2));
     await tester.pump();
   });

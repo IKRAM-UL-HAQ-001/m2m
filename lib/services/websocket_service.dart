@@ -200,8 +200,21 @@ class SocketService extends ChangeNotifier {
       );
       final message = Message.fromJson(messageData);
 
-      if (!message.isMe && message.chatId == _activeChatId) {
-        NotificationService.playMessageSound(messageId: message.id);
+      if (!message.isMe) {
+        if (message.chatId == _activeChatId) {
+          NotificationService.playMessageSound(messageId: message.id);
+        } else {
+          NotificationService.showLocalNotification(
+            title: 'New message',
+            body: _notificationBodyFor(message),
+            data: {
+              'type': 'message',
+              'message_id': message.id,
+              'chat_id': message.chatId,
+              'sender_id': message.senderId,
+            },
+          );
+        }
       }
 
       _messageController.add(message);
@@ -215,6 +228,17 @@ class SocketService extends ChangeNotifier {
     }
   }
 
+  String _notificationBodyFor(Message message) {
+    return switch (message.type) {
+      'image' => 'Photo',
+      'audio' => 'Voice message',
+      'video' => 'Video',
+      'document' =>
+        message.fileName?.isNotEmpty == true ? message.fileName! : 'Document',
+      _ => message.text.isNotEmpty ? message.text : 'New message',
+    };
+  }
+
   void sendChatOpened(String chatId) {
     if (_channel == null || chatId.startsWith('new_')) return;
     _channel?.sink.add(jsonEncode({'type': 'chat_opened', 'chat_id': chatId}));
@@ -222,7 +246,12 @@ class SocketService extends ChangeNotifier {
 
   void sendCallVideoEvent(String eventType, String callId) {
     if (_channel == null) return;
-    _channel?.sink.add(jsonEncode({'type': eventType, 'call_id': int.tryParse(callId) ?? callId}));
+    _channel?.sink.add(
+      jsonEncode({
+        'type': eventType,
+        'call_id': int.tryParse(callId) ?? callId,
+      }),
+    );
   }
 
   void markDelivered(List<String> messageIds) {

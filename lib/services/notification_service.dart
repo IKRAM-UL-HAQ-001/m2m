@@ -126,6 +126,7 @@ class NotificationService {
 
         FirebaseMessaging.onMessageOpenedApp.listen((message) {
           _logPushTiming('notification opened', message.data);
+          unawaited(markRemoteMessageDelivered(message));
           _handleNotificationTap(message.data);
         });
 
@@ -139,6 +140,7 @@ class NotificationService {
       final initial = await _fcm.getInitialMessage();
       if (initial != null) {
         _logPushTiming('initial FCM message received', initial.data);
+        unawaited(markRemoteMessageDelivered(initial));
         _handleNotificationTap(initial.data);
       }
 
@@ -160,12 +162,23 @@ class NotificationService {
   }
 
   Future<void> _requestPermission() async {
-    await _fcm.requestPermission(
+    final settings = await _fcm.requestPermission(
       alert: true,
       badge: true,
       sound: true,
       provisional: false,
     );
+    _logPushTiming(
+      'notification permission=${settings.authorizationStatus.name}',
+    );
+
+    if (Platform.isAndroid) {
+      await _local
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >()
+          ?.requestNotificationsPermission();
+    }
 
     await _fcm.setForegroundNotificationPresentationOptions(
       alert: false,
