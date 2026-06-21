@@ -32,18 +32,34 @@ class Chat {
     this.isOnline = false,
   });
 
+  /// First non-null, non-blank value as a trimmed string, else [fallback].
+  static String _firstNonEmpty(
+    List<dynamic> values, {
+    String fallback = 'Unknown',
+  }) {
+    for (final value in values) {
+      final text = value?.toString().trim() ?? '';
+      if (text.isNotEmpty) return text;
+    }
+    return fallback;
+  }
+
   factory Chat.fromJson(Map<String, dynamic> json) {
     var otherUser = json['other_user'] ?? {};
     var lastMsg = json['last_message'] ?? {};
     return Chat(
       id: json['id'].toString(),
       receiverId: otherUser['id'].toString(),
-      name:
-          otherUser['contact_name'] ??
-          otherUser['name'] ??
-          otherUser['phone'] ??
-          otherUser['phone_number'] ??
-          'Unknown',
+      // Saved device-contact name if we have one, otherwise the sender's phone
+      // number. Empty strings must be skipped — the backend sends
+      // contact_name="" for numbers that aren't in the address book, and a
+      // plain `??` chain would lock onto that empty string and render blank.
+      name: _firstNonEmpty([
+        otherUser['contact_name'],
+        otherUser['name'],
+        otherUser['phone'],
+        otherUser['phone_number'],
+      ]),
       phone: (otherUser['phone'] ?? otherUser['phone_number'] ?? '').toString(),
       about: (otherUser['about'] ?? 'Available').toString(),
       avatarUrl: UrlHelper.fixUrl(

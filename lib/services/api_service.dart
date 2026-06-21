@@ -474,6 +474,34 @@ class ApiService {
     return _callAction(callId, 'end');
   }
 
+  /// Keep-alive ping while in an active call. Refreshes the call's updated_at
+  /// on the server so the stale-call cleanup task does not force-end a healthy
+  /// long-running call (~3 min) — media flows through Chime, so nothing else
+  /// touches the call row. Best-effort: never throws.
+  Future<void> callHeartbeat(int callId) async {
+    if (callId <= 0) return;
+    try {
+      await _dio.post('/api/calls/$callId/heartbeat/', data: {});
+    } catch (_) {
+      // Non-critical; a few missed pings are tolerated by the server timeout.
+    }
+  }
+
+  /// Best-effort "this device is ringing" ack over HTTP. Unlike the WebSocket
+  /// ack, this works even when the app was just cold-launched from a call push
+  /// and the socket isn't connected yet. Never throws — if it fails, the caller
+  /// simply stays on "Calling...". Ensures the auth token is loaded first so it
+  /// works from a freshly-started isolate.
+  Future<void> markCallRinging(int callId) async {
+    if (callId <= 0) return;
+    try {
+      await TokenStorage.getAccessToken();
+      await _dio.post('/api/calls/$callId/ringing/', data: {});
+    } catch (_) {
+      // Intentionally swallowed: ringing ack is non-critical.
+    }
+  }
+
   Future<CallSession> getCallDetail(int callId) async {
     try {
       final response = await _dio.get('/api/calls/$callId/');

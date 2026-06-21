@@ -238,21 +238,28 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
     final profilePic = UrlHelper.fixUrl(user['profile_photo']);
     return ListTile(
       onTap: () async {
-        final chat = Chat(
-          id: "new_${user['id']}",
-          receiverId: user['id'].toString(),
-          name: _displayName(user),
-          phone: (user['phone'] ?? user['phone_number'] ?? '').toString(),
-          about: (user['about'] ?? 'Available').toString(),
-          avatarUrl: profilePic,
-          lastMessage: 'Start a conversation',
-          lastMessageType: 'text',
-          lastMessageStatus: MessageStatus.sent,
-          lastMessageFileUrl: null,
-          time: DateTime.now(),
-          isOnline: user['is_online'] == true,
-        );
         final chatViewModel = context.read<ChatViewModel>();
+        final receiverId = user['id'].toString();
+        // Reuse the existing conversation (real id + cached/server history) if
+        // we already have one with this person. Falling back to a `new_`
+        // placeholder only for genuinely-new conversations; otherwise the
+        // detail screen would short-circuit and show no messages.
+        final chat =
+            chatViewModel.chatForReceiver(receiverId) ??
+            Chat(
+              id: "new_$receiverId",
+              receiverId: receiverId,
+              name: _displayName(user),
+              phone: (user['phone'] ?? user['phone_number'] ?? '').toString(),
+              about: (user['about'] ?? 'Available').toString(),
+              avatarUrl: profilePic,
+              lastMessage: 'Start a conversation',
+              lastMessageType: 'text',
+              lastMessageStatus: MessageStatus.sent,
+              lastMessageFileUrl: null,
+              time: DateTime.now(),
+              isOnline: user['is_online'] == true,
+            );
         await Navigator.push(
           context,
           MaterialPageRoute(builder: (context) => ChatDetailScreen(chat: chat)),

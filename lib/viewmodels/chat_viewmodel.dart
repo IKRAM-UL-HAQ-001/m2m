@@ -25,6 +25,21 @@ class ChatViewModel extends ChangeNotifier {
   static const Duration _minimumSyncInterval = Duration(seconds: 45);
 
   List<Chat> get chats => _chats;
+
+  /// The existing, server-backed conversation with [receiverId], or null if we
+  /// have none. Used so opening a person from the contact list reuses their
+  /// real chat (and its message history) instead of starting an empty `new_`
+  /// placeholder that loads no messages.
+  Chat? chatForReceiver(String receiverId) {
+    if (receiverId.isEmpty) return null;
+    for (final chat in _chats) {
+      if (chat.receiverId == receiverId && !chat.id.startsWith('new_')) {
+        return chat;
+      }
+    }
+    return null;
+  }
+
   bool get isLoading => _isLoading;
   bool get isLoadingMore => _isLoadingMore;
   bool get hasMoreChats => _hasMoreChats;

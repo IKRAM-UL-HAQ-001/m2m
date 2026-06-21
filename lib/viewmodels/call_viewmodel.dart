@@ -34,6 +34,9 @@ class CallViewModel extends ChangeNotifier {
   static const Duration _reconnectGracePeriod = Duration(seconds: 90);
   static const Duration _callActionTimeout = Duration(seconds: 8);
   static const Duration _terminalStateClearDelay = Duration(milliseconds: 1400);
+  // Well under the server's ACTIVE_CALL_STALE_TIMEOUT_SECONDS (180s) so a couple
+  // of missed pings still keep the call alive.
+  static const Duration _callHeartbeatInterval = Duration(seconds: 45);
 
   final ApiService _apiService = ApiService();
   final CallMediaService _mediaService = ChimeCallService();
@@ -60,6 +63,7 @@ class CallViewModel extends ChangeNotifier {
   StreamSubscription<CallMediaEvent>? _mediaEventSubscription;
   StreamSubscription<IosCallAudioSessionEvent>? _iosAudioSessionSubscription;
   Timer? _reconnectGraceTimer;
+  Timer? _callHeartbeatTimer;
   int _reconnectAttempts = 0;
   bool _manualDisconnectRequested = false;
   bool _recoveringConnection = false;
@@ -338,7 +342,7 @@ class CallViewModel extends ChangeNotifier {
           _setState(CallState.incoming);
           // Acknowledge that this device is now ringing so the caller's status
           // advances from "Calling..." to "Ringing...".
-          SocketService().sendCallRingingAck(call.id);
+          _announceRinging(call.id);
         } else {
           debugPrint(
             'Call invite ignored while busy incomingCallId=${call.id} '
@@ -377,7 +381,18 @@ class CallViewModel extends ChangeNotifier {
     _currentCall = session;
     _prepareNewCall(session.callType);
     _setState(CallState.incoming);
-    SocketService().sendCallRingingAck(session.id);
+    _announceRinging(session.id);
+  }
+
+  /// Tell the backend this device is ringing so the caller advances from
+  /// "Calling..." to "Ringing...". Sent over BOTH transports because the
+  /// WebSocket may not be connected yet when the app is launched from a call
+  /// push: the WS ack is instant when already connected, while the REST ack
+  /// works as soon as the app has a token (even right after a cold launch).
+  /// The backend ack is idempotent, so sending both is safe.
+  void _announceRinging(String callId) {
+    SocketService().sendCallRingingAck(callId);
+    unawaited(_apiService.markCallRinging(int.tryParse(callId) ?? 0));
   }
 
   void markActiveCallScreenPushed() {
@@ -495,6 +510,7 @@ class CallViewModel extends ChangeNotifier {
     _manualDisconnectRequested = true;
     _reconnectGraceTimer?.cancel();
     _reconnectGraceTimer = null;
+    _stopCallHeartbeat();
     _reconnectAttempts = 0;
     _recoveringConnection = false;
     unawaited(CallForegroundService.stop());
@@ -887,14 +903,36 @@ class CallViewModel extends ChangeNotifier {
     callDurationNotifier.value = duration;
   }
 
+  void _ensureCallHeartbeat() {
+    if (_callHeartbeatTimer != null) return;
+    _sendCallHeartbeat();
+    _callHeartbeatTimer = Timer.periodic(
+      _callHeartbeatInterval,
+      (_) => _sendCallHeartbeat(),
+    );
+  }
+
+  void _stopCallHeartbeat() {
+    _callHeartbeatTimer?.cancel();
+    _callHeartbeatTimer = null;
+  }
+
+  void _sendCallHeartbeat() {
+    final id = int.tryParse(_currentCall?.id ?? '');
+    if (id == null) return;
+    unawaited(_apiService.callHeartbeat(id));
+  }
+
   void _setState(CallState state) {
     _currentState = state;
     if (isInCall) {
       unawaited(CallForegroundService.start());
+      _ensureCallHeartbeat();
       if (state == CallState.active || state == CallState.reconnecting) {
         unawaited(IosCallAudioSessionService.reactivateForCall());
       }
     } else if (_isTerminalState(state) || state == CallState.idle) {
+      _stopCallHeartbeat();
       unawaited(CallForegroundService.stop());
       unawaited(IosCallAudioSessionService.deactivateAfterCall());
     }
@@ -999,6 +1037,7 @@ class CallViewModel extends ChangeNotifier {
     _durationTimer?.cancel();
     callDurationNotifier.dispose();
     _reconnectGraceTimer?.cancel();
+    _callHeartbeatTimer?.cancel();
     _terminalStateClearTimer?.cancel();
     _mediaEventSubscription?.cancel();
     _iosAudioSessionSubscription?.cancel();

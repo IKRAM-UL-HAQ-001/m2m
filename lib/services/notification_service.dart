@@ -410,6 +410,12 @@ class NotificationService {
       _shownIncomingCallIds.remove(callId);
     });
 
+    // The push reached this device (app backgrounded/terminated): ack ringing
+    // over HTTP so the caller sees "Ringing..." even if the app is never
+    // opened. Works from the FCM background isolate — markCallRinging loads the
+    // auth token itself. Idempotent and best-effort.
+    unawaited(ApiService().markCallRinging(int.tryParse(callId) ?? 0));
+
     final callerName = data['caller_name']?.toString();
     final callType = data['call_type']?.toString() == 'video'
         ? 'video'
