@@ -145,15 +145,13 @@ class ChimeCallService extends CallMediaService {
   @override
   Future<void> setMuted(bool muted) async {
     try {
-      if (muted) {
-        await _channel.invokeMethod('mute');
-      } else {
-        await _channel.invokeMethod('unmute');
-      }
+      await _channel.invokeMethod('setMuted', {'muted': muted});
       _isLocalAudioEnabled = !muted;
       notifyListeners();
     } on PlatformException catch (e) {
       throw CallMediaException(e.message ?? 'Mute failed.');
+    } catch (e) {
+      throw CallMediaException('Mute failed.');
     }
   }
 
@@ -161,11 +159,7 @@ class ChimeCallService extends CallMediaService {
   Future<void> setCameraEnabled(bool enabled) async {
     await _ensureCameraPermission();
     try {
-      if (enabled) {
-        await _channel.invokeMethod('enableCamera');
-      } else {
-        await _channel.invokeMethod('disableCamera');
-      }
+      await _channel.invokeMethod('setCameraEnabled', {'enabled': enabled});
       _isLocalVideoActive = enabled;
       _eventController.add(
         enabled
@@ -175,6 +169,8 @@ class ChimeCallService extends CallMediaService {
       notifyListeners();
     } on PlatformException catch (e) {
       throw CallMediaException(e.message ?? 'Camera operation failed.');
+    } catch (e) {
+      throw CallMediaException('Camera operation failed.');
     }
   }
 
@@ -185,16 +181,20 @@ class ChimeCallService extends CallMediaService {
       notifyListeners();
     } on PlatformException catch (e) {
       throw CallMediaException(e.message ?? 'Camera switch failed.');
+    } catch (e) {
+      throw CallMediaException('Camera switch failed.');
     }
   }
 
   @override
   Future<void> setSpeakerEnabled(bool enabled) async {
     try {
-      await _channel.invokeMethod('setSpeaker', {'enabled': enabled});
+      await _channel.invokeMethod('setSpeakerEnabled', {'enabled': enabled});
       notifyListeners();
     } on PlatformException catch (e) {
       throw CallMediaException(e.message ?? 'Speaker routing failed.');
+    } catch (e) {
+      throw CallMediaException('Speaker routing failed.');
     }
   }
 
