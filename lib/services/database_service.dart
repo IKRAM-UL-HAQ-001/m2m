@@ -366,13 +366,20 @@ class AppDatabase extends _$AppDatabase {
   }
 
   Future<void> markMessagesRead(String chatId) async {
-    await (update(messagesTable)..where((t) => t.chatId.equals(chatId))).write(
-      MessagesTableCompanion(
-        status: const Value(MessageStatus.read),
-        readAt: Value(DateTime.now()),
-        syncedAt: Value(DateTime.now()),
-      ),
-    );
+    // Only messages I RECEIVED (isMe == false) become "read" when I open the
+    // chat. My own outgoing messages must keep their true status (sent /
+    // delivered / read) which is driven solely by the peer via the backend.
+    // Marking them read here would locally fake blue ticks even when the
+    // recipient is offline and never saw the message.
+    await (update(messagesTable)
+          ..where((t) => t.chatId.equals(chatId) & t.isMe.equals(false)))
+        .write(
+          MessagesTableCompanion(
+            status: const Value(MessageStatus.read),
+            readAt: Value(DateTime.now()),
+            syncedAt: Value(DateTime.now()),
+          ),
+        );
   }
 
   Future<void> deleteMessagesForChat(String chatId) async {
