@@ -308,6 +308,16 @@ class NotificationService {
       return;
     }
 
+    // Android/iOS already render notification+data messages while the app is
+    // backgrounded or terminated. Some platform versions also invoke the
+    // background Dart handler; showing another local notification here would
+    // produce two alerts for the same message.
+    if (notification != null) {
+      _logPushTiming('remote notification already displayed by OS', data);
+      await markRemoteMessageDelivered(message);
+      return;
+    }
+
     _logPushTiming('remote message notification handling', data);
     await _showNotification(title: title, body: body, data: data);
     await markRemoteMessageDelivered(message);
@@ -331,12 +341,15 @@ class NotificationService {
     required String body,
     required Map<String, dynamic> data,
   }) async {
-    await _setupLocalNotifications();
     final messageId = data['message_id']?.toString() ?? data['id']?.toString();
+    // Reserve the ID before asynchronous plugin initialization. A WebSocket
+    // event and foreground FCM event can arrive together and otherwise both
+    // pass the dedupe check while awaiting setup.
     if (messageId != null && !_shownMessageIds.add(messageId)) {
       return;
     }
     if (messageId != null && await _wasPushMessageAlreadyShown(messageId)) {
+      _shownMessageIds.remove(messageId);
       return;
     }
     if (messageId != null) {
@@ -345,33 +358,39 @@ class NotificationService {
       });
     }
 
-    await _local.show(
-      _notificationIdForMessage(messageId),
-      title,
-      body,
-      NotificationDetails(
-        android: AndroidNotificationDetails(
-          _messageChannelId,
-          _messageChannelName,
-          importance: Importance.high,
-          priority: Priority.high,
-          icon: '@mipmap/ic_launcher',
-          color: const Color(0xFF6B00D7),
-          playSound: true,
-          audioAttributesUsage: AudioAttributesUsage.notificationEvent,
-          category: AndroidNotificationCategory.message,
-          visibility: NotificationVisibility.public,
-          styleInformation: BigTextStyleInformation(body),
+    try {
+      await _setupLocalNotifications();
+      await _local.show(
+        _notificationIdForMessage(messageId),
+        title,
+        body,
+        NotificationDetails(
+          android: AndroidNotificationDetails(
+            _messageChannelId,
+            _messageChannelName,
+            importance: Importance.high,
+            priority: Priority.high,
+            icon: '@mipmap/ic_launcher',
+            color: const Color(0xFF6B00D7),
+            playSound: true,
+            audioAttributesUsage: AudioAttributesUsage.notificationEvent,
+            category: AndroidNotificationCategory.message,
+            visibility: NotificationVisibility.public,
+            styleInformation: BigTextStyleInformation(body),
+          ),
+          iOS: const DarwinNotificationDetails(
+            presentAlert: true,
+            presentBadge: true,
+            presentSound: true,
+          ),
         ),
-        iOS: const DarwinNotificationDetails(
-          presentAlert: true,
-          presentBadge: true,
-          presentSound: true,
-        ),
-      ),
-      payload: jsonEncode(data),
-    );
-    _logPushTiming('local message notification shown', data);
+        payload: jsonEncode(data),
+      );
+      _logPushTiming('local message notification shown', data);
+    } catch (_) {
+      if (messageId != null) _shownMessageIds.remove(messageId);
+      rethrow;
+    }
   }
 
   Future<void> showIncomingCallNotification(Map<String, dynamic> data) async {
