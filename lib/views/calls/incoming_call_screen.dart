@@ -31,11 +31,16 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
     super.initState();
     context.read<CallViewModel>().addListener(_handleStateChange);
     _timeoutTimer = Timer(const Duration(seconds: 60), _handleTimeout);
+    // Own the foreground ringtone for the lifetime of this screen so the call
+    // rings exactly once regardless of whether the invite arrived over the
+    // WebSocket or via FCM, and is guaranteed to stop when the screen leaves.
+    unawaited(NotificationService().startRingtone());
   }
 
   @override
   void dispose() {
     _timeoutTimer?.cancel();
+    unawaited(NotificationService().stopRingtone());
     context.read<CallViewModel>().removeListener(_handleStateChange);
     super.dispose();
   }

@@ -189,7 +189,15 @@ class NotificationService {
 
   Future<void> handleForegroundRemoteMessage(RemoteMessage message) async {
     if (_isIncomingCallPayload(message.data)) {
-      await showIncomingCallNotification(message.data);
+      // App is in the foreground: present the in-app incoming-call UI and play
+      // exactly one looping ringtone via the native channel. Posting the
+      // full-screen call notification here would double the ringtone (native
+      // ringtone + the notification channel's own sound) and overlay a
+      // redundant system alert on top of the call screen — the source of the
+      // ringing lag. The full-screen notification is only needed when the app
+      // is backgrounded or terminated (handled by [showRemoteMessageNotification]).
+      // The ringtone is owned by IncomingCallScreen's lifecycle so it rings
+      // regardless of whether the invite arrived via WebSocket or FCM.
       _incomingCallTapController.add(
         IncomingCallNotificationTap(data: message.data),
       );
