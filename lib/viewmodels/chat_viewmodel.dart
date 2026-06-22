@@ -19,6 +19,8 @@ class ChatViewModel extends ChangeNotifier {
   StreamSubscription<Message>? _socketSubscription;
   StreamSubscription<MessageStatusUpdate>? _statusSubscription;
   StreamSubscription<Map<String, dynamic>>? _deleteSubscription;
+  StreamSubscription<Map<String, dynamic>>? _presenceSubscription;
+  final Set<String> _deletedChatIds = {};
   final Set<String> _recentMessageEventKeys = {};
   final List<String> _recentMessageEventOrder = [];
   static const int _maxRecentMessageEvents = 200;
@@ -60,6 +62,9 @@ class ChatViewModel extends ChangeNotifier {
     _deleteSubscription = _socketService.messageDeleteStream.listen((data) {
       _handleMessageDeleted(data);
     });
+    _presenceSubscription = _socketService.presenceStream.listen((data) {
+      _handlePresenceUpdate(data);
+    });
   }
 
   void handleAuthState(bool isAuthenticated) {
@@ -92,6 +97,7 @@ class ChatViewModel extends ChangeNotifier {
   }
 
   Future<void> deleteChat(String chatId) async {
+    _deletedChatIds.add(chatId);
     _chats.removeWhere((c) => c.id == chatId);
     notifyListeners();
     try {
@@ -116,6 +122,7 @@ class ChatViewModel extends ChangeNotifier {
 
   void _handleNewMessage(Message message) {
     if (_isDuplicateMessageEvent(message)) return;
+    if (_deletedChatIds.contains(message.chatId)) return;
     unawaited(_db.upsertMessage(message));
     if (!message.isMe && message.type != 'text') {
       MediaStorageService.instance.cacheMessagesInBackground(
@@ -276,6 +283,20 @@ class ChatViewModel extends ChangeNotifier {
     }
   }
 
+  void _handlePresenceUpdate(Map<String, dynamic> data) {
+    final userId = data['user_id']?.toString();
+    final isOnline = data['is_online'] == true;
+    if (userId == null) return;
+    bool changed = false;
+    for (int i = 0; i < _chats.length; i++) {
+      if (_chats[i].receiverId == userId && _chats[i].isOnline != isOnline) {
+        _chats[i] = _chats[i].copyWith(isOnline: isOnline);
+        changed = true;
+      }
+    }
+    if (changed) notifyListeners();
+  }
+
   bool _isDuplicateMessageEvent(Message message) {
     final key = '${message.chatId}:${message.clientUuid}:${message.id}';
     if (_recentMessageEventKeys.contains(key)) return true;
@@ -293,6 +314,7 @@ class ChatViewModel extends ChangeNotifier {
     _socketSubscription?.cancel();
     _statusSubscription?.cancel();
     _deleteSubscription?.cancel();
+    _presenceSubscription?.cancel();
     super.dispose();
   }
 }

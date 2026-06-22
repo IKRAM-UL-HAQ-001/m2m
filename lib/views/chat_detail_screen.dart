@@ -1524,7 +1524,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       unawaited(MediaStorageService.instance.deleteLocalFile(localPath));
     } catch (e) {
       if (mounted) {
-        final errMsg = e is ApiException ? e.message : 'Failed to delete message';
+        final errMsg = e is ApiException
+            ? e.message
+            : 'Failed to delete message';
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(errMsg)));
@@ -1662,36 +1664,36 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
         if (!didPop && _isSelectionMode) _exitSelectionMode();
       },
       child: Scaffold(
-      resizeToAvoidBottomInset: false,
-      appBar: _buildAppBar(),
-      body: SafeArea(
-        top: false,
-        bottom: true,
-        child: Column(
-          children: [
-            Expanded(
-              child: GestureDetector(
-                onTap: () {
-                  _focusNode.unfocus();
-                  if (_showEmojiPicker) {
-                    setState(() => _showEmojiPicker = false);
-                  }
-                },
-                child: _buildChatArea(),
-              ),
-            ),
-            _buildComposerArea(),
-            if (_showEmojiPicker)
-              RepaintBoundary(
-                child: SizedBox(
-                  height: _emojiPickerHeight,
-                  child: _buildEmojiPicker(),
+        resizeToAvoidBottomInset: true,
+        appBar: _buildAppBar(),
+        body: SafeArea(
+          top: false,
+          bottom: true,
+          child: Column(
+            children: [
+              Expanded(
+                child: GestureDetector(
+                  onTap: () {
+                    _focusNode.unfocus();
+                    if (_showEmojiPicker) {
+                      setState(() => _showEmojiPicker = false);
+                    }
+                  },
+                  child: _buildChatArea(),
                 ),
               ),
-            const _KeyboardInsetSpacer(),
-          ],
+              _buildComposerArea(),
+              if (_showEmojiPicker)
+                RepaintBoundary(
+                  child: SizedBox(
+                    height: _emojiPickerHeight,
+                    child: _buildEmojiPicker(),
+                  ),
+                ),
+              const _KeyboardInsetSpacer(),
+            ],
+          ),
         ),
-      ),
       ),
     );
   }
