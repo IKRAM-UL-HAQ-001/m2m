@@ -1449,31 +1449,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
                 },
               ),
             ListTile(
-              leading: const Icon(Icons.delete_outline, color: Colors.red),
-              title: const Text(
-                'Delete for me',
-                style: TextStyle(color: Colors.red),
-              ),
-              onTap: () {
-                Navigator.pop(ctx);
-                _exitSelectionMode();
-                _deleteMessage(message, 'for_me');
-              },
-            ),
-            if (message.isMe)
-              ListTile(
-                leading: const Icon(Icons.delete_forever, color: Colors.red),
-                title: const Text(
-                  'Delete for everyone',
-                  style: TextStyle(color: Colors.red),
-                ),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _exitSelectionMode();
-                  _deleteMessage(message, 'for_everyone');
-                },
-              ),
-            ListTile(
               leading: const Icon(Icons.forward),
               title: const Text('Forward'),
               onTap: () {
