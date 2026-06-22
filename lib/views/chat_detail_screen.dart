@@ -86,6 +86,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   Widget? _cachedEmojiPicker;
   Message? _replyingToMessage;
   String? _highlightedMessageId;
+  final Set<String> _selectedMessageIds = {};
+  bool get _isSelectionMode => _selectedMessageIds.isNotEmpty;
 
   bool _isOtherTyping = false;
   Timer? _typingClearTimer;
@@ -1249,6 +1251,124 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     }
   }
 
+  void _toggleMessageSelection(Message message) {
+    setState(() {
+      if (_selectedMessageIds.contains(message.id)) {
+        _selectedMessageIds.remove(message.id);
+      } else {
+        _selectedMessageIds.add(message.id);
+      }
+    });
+  }
+
+  void _exitSelectionMode() {
+    setState(() => _selectedMessageIds.clear());
+  }
+
+  void _onMessageLongPress(Message message) {
+    if (_isSelectionMode) {
+      _toggleMessageSelection(message);
+    } else {
+      HapticFeedback.mediumImpact();
+      setState(() => _selectedMessageIds.add(message.id));
+      _showMessageOptions(message);
+    }
+  }
+
+  void _deleteSelectedMessages() {
+    final selectedMessages = _messages
+        .where((m) => _selectedMessageIds.contains(m.id))
+        .toList();
+    final allMine = selectedMessages.every((m) => m.isMe);
+
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.only(top: 12, bottom: 8),
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline, color: Colors.red),
+              title: const Text(
+                'Delete for me',
+                style: TextStyle(color: Colors.red),
+              ),
+              onTap: () {
+                Navigator.pop(ctx);
+                _bulkDeleteMessages(selectedMessages, 'for_me');
+              },
+            ),
+            if (allMine)
+              ListTile(
+                leading: const Icon(Icons.delete_forever, color: Colors.red),
+                title: const Text(
+                  'Delete for everyone',
+                  style: TextStyle(color: Colors.red),
+                ),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _bulkDeleteMessages(selectedMessages, 'for_everyone');
+                },
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _bulkDeleteMessages(
+    List<Message> messages,
+    String deleteType,
+  ) async {
+    _exitSelectionMode();
+    for (final message in messages) {
+      await _deleteMessage(message, deleteType);
+    }
+  }
+
+  void _forwardSelectedMessages() {
+    final selectedMessages = _messages
+        .where((m) => _selectedMessageIds.contains(m.id))
+        .toList();
+    if (selectedMessages.isEmpty) return;
+    _exitSelectionMode();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => ForwardContactPickerSheet(
+        message: selectedMessages.first,
+        onContactsSelected: (chatIds) async {
+          Navigator.pop(context);
+          for (final message in selectedMessages) {
+            await _sendForwardedMessage(message, chatIds);
+          }
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                chatIds.length == 1
+                    ? 'Forwarded'
+                    : 'Forwarded to ${chatIds.length} chats',
+              ),
+              backgroundColor: AppColors.primaryColor,
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   void _showMessageOptions(Message message) {
     const quickReactions = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
     showModalBottomSheet(
@@ -1294,6 +1414,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
               title: const Text('Reply'),
               onTap: () {
                 Navigator.pop(ctx);
+                _exitSelectionMode();
                 setState(() => _replyingToMessage = message);
                 WidgetsBinding.instance.addPostFrameCallback((_) {
                   if (mounted) _focusNode.requestFocus();
@@ -1307,6 +1428,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
                 onTap: () {
                   Clipboard.setData(ClipboardData(text: message.text));
                   Navigator.pop(ctx);
+                  _exitSelectionMode();
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('Copied to clipboard')),
                   );
@@ -1322,6 +1444,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
                 title: const Text('Edit'),
                 onTap: () {
                   Navigator.pop(ctx);
+                  _exitSelectionMode();
                   _showEditDialog(message);
                 },
               ),
@@ -1333,6 +1456,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
               ),
               onTap: () {
                 Navigator.pop(ctx);
+                _exitSelectionMode();
                 _deleteMessage(message, 'for_me');
               },
             ),
@@ -1345,6 +1469,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
                 ),
                 onTap: () {
                   Navigator.pop(ctx);
+                  _exitSelectionMode();
                   _deleteMessage(message, 'for_everyone');
                 },
               ),
@@ -1353,6 +1478,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
               title: const Text('Forward'),
               onTap: () {
                 Navigator.pop(ctx);
+                _exitSelectionMode();
                 _forwardMessage(message);
               },
             ),
@@ -1549,7 +1675,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   @override
   Widget build(BuildContext context) {
     Responsive.init(context);
-    return Scaffold(
+    return PopScope(
+      canPop: !_isSelectionMode,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _isSelectionMode) _exitSelectionMode();
+      },
+      child: Scaffold(
       resizeToAvoidBottomInset: false,
       appBar: _buildAppBar(),
       body: SafeArea(
@@ -1576,14 +1707,42 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
                   child: _buildEmojiPicker(),
                 ),
               ),
-            SizedBox(height: MediaQuery.of(context).viewInsets.bottom),
+            const _KeyboardInsetSpacer(),
           ],
         ),
+      ),
       ),
     );
   }
 
   AppBar _buildAppBar() {
+    if (_isSelectionMode) {
+      return AppBar(
+        backgroundColor: AppColors.primaryColor,
+        iconTheme: const IconThemeData(color: Colors.white),
+        leading: IconButton(
+          icon: const Icon(Icons.close, color: Colors.white),
+          onPressed: _exitSelectionMode,
+        ),
+        title: Text(
+          '${_selectedMessageIds.length} selected',
+          style: const TextStyle(color: Colors.white, fontSize: 18),
+        ),
+        actions: [
+          IconButton(
+            tooltip: 'Forward',
+            icon: const Icon(Icons.forward, color: Colors.white),
+            onPressed: _forwardSelectedMessages,
+          ),
+          IconButton(
+            tooltip: 'Delete',
+            icon: const Icon(Icons.delete_outline, color: Colors.white),
+            onPressed: _deleteSelectedMessages,
+          ),
+        ],
+      );
+    }
+
     return AppBar(
       backgroundColor: AppColors.primaryColor,
       iconTheme: const IconThemeData(color: Colors.white),
@@ -1739,15 +1898,18 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       isLoading: _isLoading,
       isLoadingMore: _isLoadingMore,
       scrollController: _scrollController,
-      highlightedMessageId: _highlightedMessageId,
+      highlightedMessageId: _isSelectionMode ? null : _highlightedMessageId,
       targetKeyForId: _messageTargetKey,
       downloadedUrls: _downloadedUrls,
-      onLongPressMessage: _showMessageOptions,
+      onLongPressMessage: _onMessageLongPress,
       onReplyTap: _scrollToMessage,
-      onOpenMediaPreview: _openMediaPreview,
+      onOpenMediaPreview: _isSelectionMode ? (_) {} : _openMediaPreview,
       onDownloadImage: _downloadAndSaveImage,
       onOpenFile: _openFile,
       onShowReactionUsers: _showReactionUsers,
+      selectedMessageIds: _selectedMessageIds,
+      isSelectionMode: _isSelectionMode,
+      onTapMessage: _isSelectionMode ? _toggleMessageSelection : null,
     );
   }
 
@@ -2006,6 +2168,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       ),
       child: _cachedEmojiPicker!,
     );
+  }
+}
+
+class _KeyboardInsetSpacer extends StatelessWidget {
+  const _KeyboardInsetSpacer();
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(height: MediaQuery.of(context).viewInsets.bottom);
   }
 }
 

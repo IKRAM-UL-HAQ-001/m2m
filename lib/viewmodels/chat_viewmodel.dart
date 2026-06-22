@@ -87,6 +87,17 @@ class ChatViewModel extends ChangeNotifier {
     return _db.invalidateMessageRefreshes();
   }
 
+  Future<void> deleteChat(String chatId) async {
+    _chats.removeWhere((c) => c.id == chatId);
+    notifyListeners();
+    try {
+      await _apiService.deleteChat(chatId);
+    } catch (e) {
+      debugPrint('Error deleting chat on server: $e');
+    }
+    await _db.deleteChatById(chatId);
+  }
+
   void markChatRead(String chatId) {
     final index = _chats.indexWhere((chat) => chat.id == chatId);
     if (index == -1 || _chats[index].unreadCount == 0) return;

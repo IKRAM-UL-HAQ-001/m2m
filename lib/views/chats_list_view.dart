@@ -94,12 +94,76 @@ class ChatsListView extends StatelessWidget {
     );
   }
 
+  void _showChatOptions(BuildContext context, Chat chat) {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.only(top: 12, bottom: 8),
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline, color: Colors.red),
+              title: const Text(
+                'Delete chat',
+                style: TextStyle(color: Colors.red),
+              ),
+              onTap: () {
+                Navigator.pop(ctx);
+                _confirmDeleteChat(context, chat);
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _confirmDeleteChat(BuildContext context, Chat chat) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete chat'),
+        content: Text(
+          'Delete chat with ${chat.name}? This will only delete it for you.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              context.read<ChatViewModel>().deleteChat(chat.id);
+            },
+            child: const Text(
+              'Delete',
+              style: TextStyle(color: Colors.red),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildChatTile(
     BuildContext context,
     Chat chat, {
     String highlightQuery = '',
   }) {
-    return ListTile(
+    return GestureDetector(
+      onLongPress: () => _showChatOptions(context, chat),
+      child: ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       leading: Stack(
         children: [
@@ -198,6 +262,7 @@ class ChatsListView extends StatelessWidget {
       onTap: () async {
         await _openChat(context, chat);
       },
+    ),
     );
   }
 

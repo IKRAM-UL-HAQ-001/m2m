@@ -22,6 +22,9 @@ class MessageList extends StatelessWidget {
     required this.onDownloadImage,
     required this.onOpenFile,
     required this.onShowReactionUsers,
+    this.selectedMessageIds = const {},
+    this.isSelectionMode = false,
+    this.onTapMessage,
   });
 
   final List<Message> messages;
@@ -37,6 +40,9 @@ class MessageList extends StatelessWidget {
   final ValueChanged<String> onDownloadImage;
   final ValueChanged<String> onOpenFile;
   final void Function(String emoji, List<String> userIds) onShowReactionUsers;
+  final Set<String> selectedMessageIds;
+  final bool isSelectionMode;
+  final ValueChanged<Message>? onTapMessage;
 
   @override
   Widget build(BuildContext context) {
@@ -95,6 +101,11 @@ class MessageList extends StatelessWidget {
                   onDownloadImage: onDownloadImage,
                   onOpenFile: onOpenFile,
                   onShowReactionUsers: onShowReactionUsers,
+                  isSelected: selectedMessageIds.contains(message.id),
+                  isSelectionMode: isSelectionMode,
+                  onTap: onTapMessage != null
+                      ? () => onTapMessage!(message)
+                      : null,
                 );
                 final targetKey = targetKeyForId(message.id);
 

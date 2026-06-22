@@ -733,6 +733,13 @@ class ApiService {
     );
   }
 
+  Future<void> deleteChat(String chatId) async {
+    await _dio.post(
+      '/api/delete-chat/',
+      data: {'chat_id': int.parse(chatId)},
+    );
+  }
+
   Future<void> editMessage(String messageId, String newText) async {
     await _dio.post(
       '/api/edit-message/',

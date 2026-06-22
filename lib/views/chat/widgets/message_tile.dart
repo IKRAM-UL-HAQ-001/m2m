@@ -24,6 +24,9 @@ class MessageTile extends StatelessWidget {
     required this.onDownloadImage,
     required this.onOpenFile,
     required this.onShowReactionUsers,
+    this.isSelected = false,
+    this.isSelectionMode = false,
+    this.onTap,
   });
 
   final Message message;
@@ -35,6 +38,9 @@ class MessageTile extends StatelessWidget {
   final ValueChanged<String> onDownloadImage;
   final ValueChanged<String> onOpenFile;
   final void Function(String emoji, List<String> userIds) onShowReactionUsers;
+  final bool isSelected;
+  final bool isSelectionMode;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -55,7 +61,39 @@ class MessageTile extends StatelessWidget {
 
     return GestureDetector(
       onLongPress: () => onLongPress(message),
+      onTap: onTap,
       child: Container(
+        color: isSelected
+            ? const Color(0xFF25D366).withValues(alpha: 0.18)
+            : Colors.transparent,
+        child: Row(
+          children: [
+            if (isSelectionMode)
+              Padding(
+                padding: const EdgeInsets.only(left: 6),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 150),
+                  width: 22,
+                  height: 22,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: isSelected
+                        ? const Color(0xFF25D366)
+                        : Colors.transparent,
+                    border: Border.all(
+                      color: isSelected
+                          ? const Color(0xFF25D366)
+                          : Colors.grey,
+                      width: 2,
+                    ),
+                  ),
+                  child: isSelected
+                      ? const Icon(Icons.check, color: Colors.white, size: 14)
+                      : null,
+                ),
+              ),
+            Expanded(
+              child: Container(
         margin: const EdgeInsets.symmetric(vertical: 2),
         alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
         child: ConstrainedBox(
@@ -126,6 +164,10 @@ class MessageTile extends StatelessWidget {
               ],
             ),
           ),
+        ),
+      ),
+            ),
+          ],
         ),
       ),
     );

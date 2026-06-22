@@ -389,6 +389,11 @@ class AppDatabase extends _$AppDatabase {
     )..where((t) => t.chatId.equals(chatId))).go();
   }
 
+  Future<void> deleteChatById(String chatId) async {
+    await deleteMessagesForChat(chatId);
+    await (delete(chatsTable)..where((t) => t.id.equals(chatId))).go();
+  }
+
   Future<void> clearMessages() async {
     await delete(messagesTable).go();
   }
