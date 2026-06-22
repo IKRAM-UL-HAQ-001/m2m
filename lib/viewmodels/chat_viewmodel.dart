@@ -18,6 +18,7 @@ class ChatViewModel extends ChangeNotifier {
   String? _activeChatId;
   StreamSubscription<Message>? _socketSubscription;
   StreamSubscription<MessageStatusUpdate>? _statusSubscription;
+  StreamSubscription<Map<String, dynamic>>? _deleteSubscription;
   final Set<String> _recentMessageEventKeys = {};
   final List<String> _recentMessageEventOrder = [];
   static const int _maxRecentMessageEvents = 200;
@@ -55,6 +56,9 @@ class ChatViewModel extends ChangeNotifier {
     });
     _statusSubscription = _socketService.messageStatusStream.listen((status) {
       _handleStatusUpdate(status);
+    });
+    _deleteSubscription = _socketService.messageDeleteStream.listen((data) {
+      _handleMessageDeleted(data);
     });
   }
 
@@ -244,6 +248,15 @@ class ChatViewModel extends ChangeNotifier {
     }
   }
 
+  void _handleMessageDeleted(Map<String, dynamic> data) {
+    final chatId = data['chat_id']?.toString();
+    if (chatId == null) return;
+    final index = _chats.indexWhere((c) => c.id == chatId);
+    if (index == -1) return;
+    // Re-fetch silently so the chat list last-message preview reflects the deletion.
+    unawaited(fetchChats(isSilent: true, force: true));
+  }
+
   void _handleStatusUpdate(MessageStatusUpdate status) {
     final index = _chats.indexWhere((c) => c.id == status.chatId);
     if (index != -1) {
@@ -279,6 +292,7 @@ class ChatViewModel extends ChangeNotifier {
   void dispose() {
     _socketSubscription?.cancel();
     _statusSubscription?.cancel();
+    _deleteSubscription?.cancel();
     super.dispose();
   }
 }

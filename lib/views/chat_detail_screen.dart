@@ -1506,14 +1506,19 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   }
 
   Future<void> _deleteMessage(Message message, String deleteType) async {
+    // Pending/failed messages only have a UUID id — they were never confirmed by
+    // the server, so skip the API call and just remove them locally.
+    final isPendingOrFailed = int.tryParse(message.id) == null;
     try {
-      await _apiService.deleteMessage(message.id, deleteType);
+      if (!isPendingOrFailed) {
+        await _apiService.deleteMessage(message.id, deleteType);
+      }
       if (!mounted) return;
       final localPath = message.localFilePath;
       setState(() {
         final index = _messages.indexWhere((m) => m.id == message.id);
         if (index == -1) return;
-        if (deleteType == 'for_me') {
+        if (deleteType == 'for_me' || isPendingOrFailed) {
           unawaited(
             _db
                 .upsertMessage(
@@ -1542,11 +1547,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
         }
       });
       unawaited(MediaStorageService.instance.deleteLocalFile(localPath));
-    } on ApiException catch (e) {
+    } catch (e) {
       if (mounted) {
+        final errMsg = e is ApiException ? e.message : 'Failed to delete message';
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text(e.message)));
+        ).showSnackBar(SnackBar(content: Text(errMsg)));
       }
     }
   }

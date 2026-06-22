@@ -727,9 +727,11 @@ class ApiService {
   }
 
   Future<void> deleteMessage(String messageId, String deleteType) async {
+    final id = int.tryParse(messageId);
+    if (id == null) return;
     await _dio.post(
       '/api/delete-message/',
-      data: {'message_id': int.parse(messageId), 'delete_type': deleteType},
+      data: {'message_id': id, 'delete_type': deleteType},
     );
   }
 
