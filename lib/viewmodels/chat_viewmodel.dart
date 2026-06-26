@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import '../models/chat.dart';
 import '../models/message.dart';
 import '../services/api_service.dart';
 import '../services/database_service.dart';
 import '../services/media_storage_service.dart';
+import '../services/notification_service.dart';
 import '../services/websocket_service.dart';
 
 class ChatViewModel extends ChangeNotifier {
@@ -65,6 +67,13 @@ class ChatViewModel extends ChangeNotifier {
     _presenceSubscription = _socketService.presenceStream.listen((data) {
       _handlePresenceUpdate(data);
     });
+    // The socket normally delivers live list updates. When it's down, a
+    // foreground push is the reliable signal — fall back to a silent refetch so
+    // the new message still lands on the chats tab without a manual refresh.
+    NotificationService.onForegroundMessageData = (_) {
+      if (_socketService.isConnected) return;
+      fetchChats(isSilent: true, force: true);
+    };
   }
 
   void handleAuthState(bool isAuthenticated) {
@@ -105,6 +114,17 @@ class ChatViewModel extends ChangeNotifier {
     } catch (e) {
       debugPrint('Error deleting chat on server: $e');
     }
+    // Remove this device's downloaded media (images/video/voice) for the chat
+    // before dropping the rows, so deleting a chat reclaims storage and the
+    // files can't be reused if the conversation later reappears.
+    try {
+      final localPaths = await _db.getLocalFilePathsForChat(chatId);
+      for (final path in localPaths) {
+        await MediaStorageService.instance.deleteLocalFile(path);
+      }
+    } catch (e) {
+      debugPrint('Error deleting local chat media: $e');
+    }
     await _db.deleteChatById(chatId);
   }
 
@@ -122,7 +142,10 @@ class ChatViewModel extends ChangeNotifier {
 
   void _handleNewMessage(Message message) {
     if (_isDuplicateMessageEvent(message)) return;
-    if (_deletedChatIds.contains(message.chatId)) return;
+    // A new message revives a chat the user previously deleted (WhatsApp-style):
+    // the backend has already restored it (showing only post-deletion history),
+    // so stop suppressing it locally and let it reappear in the list.
+    _deletedChatIds.remove(message.chatId);
     unawaited(_db.upsertMessage(message));
     if (!message.isMe && message.type != 'text') {
       MediaStorageService.instance.cacheMessagesInBackground(
@@ -171,6 +194,82 @@ class ChatViewModel extends ChangeNotifier {
     }
   }
 
+  bool _retryingUnsent = false;
+
+  /// WhatsApp-style outgoing reliability: resend messages that were left
+  /// `sending` (app killed mid-send) or `failed` (send threw, e.g. offline)
+  /// once connectivity is back. Idempotent — each carries its original
+  /// `clientUuid`, so the server reconciles a resend with any copy it already
+  /// stored instead of duplicating it. Triggered after every successful chat
+  /// sync (startup, resume, reconnect).
+  Future<void> retryUnsentMessages() async {
+    if (!_isAuthenticated || _retryingUnsent) return;
+    final userId = ApiService.currentUserId;
+    if (userId == null || userId.isEmpty) return;
+    _retryingUnsent = true;
+    try {
+      final entities = await _db.getUnsentOutgoingMessages(userId);
+      if (entities.isEmpty) return;
+      final now = DateTime.now();
+      for (final entity in entities) {
+        final message = entity.toDomain();
+        // Skip just-created rows — they may still be uploading in-flight from
+        // the chat screen; resending now would race that upload.
+        if (now.difference(message.time) < const Duration(seconds: 20)) continue;
+        if (message.chatId.startsWith('new_')) continue;
+        final receiverId =
+            entity.receiverId ?? _receiverIdForChat(message.chatId);
+        if (receiverId == null || receiverId.isEmpty) continue;
+        await _resendMessage(message, receiverId);
+      }
+    } catch (e) {
+      debugPrint('retryUnsentMessages error: $e');
+    } finally {
+      _retryingUnsent = false;
+    }
+  }
+
+  String? _receiverIdForChat(String chatId) {
+    final index = _chats.indexWhere((c) => c.id == chatId);
+    return index == -1 ? null : _chats[index].receiverId;
+  }
+
+  Future<void> _resendMessage(Message message, String receiverId) async {
+    try {
+      File? file;
+      if (message.type != 'text') {
+        final path = message.localFilePath;
+        if (path == null || path.isEmpty || !File(path).existsSync()) {
+          // The local media is gone (cache cleared / never persisted); we can't
+          // resend it. Leave it failed so it stops being retried every sync.
+          await _db.updateMessageStatus(message.id, MessageStatus.failed);
+          return;
+        }
+        file = File(path);
+      }
+      final sent = await _apiService.sendMessage(
+        receiverId,
+        message.text,
+        clientUuid: message.clientUuid,
+        file: file,
+        type: message.type == 'text' ? null : message.type,
+        fileName: message.fileName,
+        replyTo: message.replyToId,
+        duration: message.duration,
+      );
+      // Reconcile the optimistic row (id == clientUuid) with the real server id,
+      // preserving the on-device media path so it keeps rendering from disk.
+      final reconciled =
+          sent.localFilePath == null && message.localFilePath != null
+          ? sent.copyWith(localFilePath: message.localFilePath)
+          : sent;
+      await _db.upsertMessage(reconciled, receiverId: receiverId);
+    } catch (e) {
+      debugPrint('Resend failed for ${message.clientUuid}: $e');
+      await _db.updateMessageStatus(message.id, MessageStatus.failed);
+    }
+  }
+
   Future<void> fetchChats({bool isSilent = false, bool force = false}) async {
     if (!_isAuthenticated) return;
 
@@ -216,13 +315,21 @@ class ChatViewModel extends ChangeNotifier {
       _lastServerSync = DateTime.now();
       notifyListeners();
       unawaited(_db.saveChats(page.items.map((c) => c.toEntity()).toList()));
+      // A successful sync means we have connectivity — resume any sends that
+      // were stranded while offline / when the app was killed mid-send.
+      unawaited(retryUnsentMessages());
     } catch (e) {
       debugPrint('Error fetching chats from API: $e');
     } finally {
       _chatSyncInFlight = false;
     }
 
-    if (!isSilent) {
+    // Clear the spinner whenever a sync completes, even a silent one. A
+    // non-silent UI fetch may have turned _isLoading on and then bailed at the
+    // _chatSyncInFlight guard above; only the in-flight sync that "won" the
+    // race reaches here, so it must own clearing the flag — otherwise the
+    // spinner sticks forever on an empty chat list.
+    if (_isLoading) {
       _isLoading = false;
       notifyListeners();
     }

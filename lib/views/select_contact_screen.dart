@@ -1,6 +1,10 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models/chat.dart';
@@ -19,6 +23,8 @@ class SelectContactScreen extends StatefulWidget {
 }
 
 class _SelectContactScreenState extends State<SelectContactScreen> {
+  static const String _cacheKey = 'cached_contacts_v1';
+
   final ApiService _apiService = ApiService();
   List<Map<String, dynamic>> _onAppContacts = [];
   List<Map<String, dynamic>> _offAppContacts = [];
@@ -29,7 +35,53 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
   @override
   void initState() {
     super.initState();
-    _loadUsers(showFullScreen: true);
+    // Local-first: paint the last-synced contacts instantly (no spinner), then
+    // re-sync with the backend in the background and update silently. A
+    // full-screen spinner only shows on the very first sync (empty cache).
+    _bootstrap();
+  }
+
+  Future<void> _bootstrap() async {
+    final hadCache = await _loadFromCache();
+    if (!mounted) return;
+    await _loadUsers(showFullScreen: !hadCache);
+  }
+
+  Future<bool> _loadFromCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_cacheKey);
+      if (raw == null || raw.isEmpty) return false;
+      final decoded = jsonDecode(raw) as Map<String, dynamic>;
+      final onApp = (decoded['onApp'] as List? ?? [])
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
+      final offApp = (decoded['offApp'] as List? ?? [])
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
+      if (onApp.isEmpty && offApp.isEmpty) return false;
+      if (!mounted) return false;
+      setState(() {
+        _onAppContacts = onApp;
+        _offAppContacts = offApp;
+        _isLoading = false;
+      });
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _cacheContacts() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _cacheKey,
+        jsonEncode({'onApp': _onAppContacts, 'offApp': _offAppContacts}),
+      );
+    } catch (_) {
+      // Caching is best-effort; a failure just means we re-sync next time.
+    }
   }
 
   Future<void> _loadUsers({bool showFullScreen = false}) async {
@@ -49,17 +101,22 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
         _isLoading = false;
         _isRefreshing = false;
       });
+      unawaited(_cacheContacts());
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() {
-        _errorMessage = e.message;
+        // Keep showing cached contacts; only surface the error on a cold load.
+        _errorMessage =
+            (_onAppContacts.isEmpty && _offAppContacts.isEmpty) ? e.message : null;
         _isLoading = false;
         _isRefreshing = false;
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _errorMessage = 'Could not sync contacts';
+        _errorMessage = (_onAppContacts.isEmpty && _offAppContacts.isEmpty)
+            ? 'Could not sync contacts'
+            : null;
         _isLoading = false;
         _isRefreshing = false;
       });

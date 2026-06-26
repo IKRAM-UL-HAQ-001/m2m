@@ -179,6 +179,20 @@ class AppDatabase extends _$AppDatabase {
     return entities.map((entity) => entity.toDomain()).toList();
   }
 
+  /// Messages I sent that never confirmed delivery to the server — still
+  /// `sending` (app killed mid-send) or `failed` (send threw). Used by the
+  /// outgoing retry queue to resume them when connectivity returns. The
+  /// `clientUuid` on each makes the resend idempotent server-side.
+  Future<List<MessageEntity>> getUnsentOutgoingMessages(String senderId) {
+    return (select(messagesTable)..where(
+          (t) =>
+              t.senderId.equals(senderId) &
+              (t.status.equalsValue(MessageStatus.sending) |
+                  t.status.equalsValue(MessageStatus.failed)),
+        ))
+        .get();
+  }
+
   Future<List<SharedMedia>> getCachedSharedMedia(
     String userId, {
     required String type,
@@ -380,6 +394,20 @@ class AppDatabase extends _$AppDatabase {
             syncedAt: Value(DateTime.now()),
           ),
         );
+  }
+
+  /// Absolute paths of any media this device downloaded for [chatId], so the
+  /// caller can delete the files before the message rows are removed.
+  Future<List<String>> getLocalFilePathsForChat(String chatId) async {
+    final query = select(messagesTable)
+      ..where((t) => t.chatId.equals(chatId))
+      ..where((t) => t.localFilePath.isNotNull());
+    final entities = await query.get();
+    return entities
+        .map((e) => e.localFilePath)
+        .whereType<String>()
+        .where((path) => path.isNotEmpty)
+        .toList();
   }
 
   Future<void> deleteMessagesForChat(String chatId) async {

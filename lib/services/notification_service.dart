@@ -88,8 +88,18 @@ class NotificationService {
     return _instance._playMessageSound(messageId: messageId);
   }
 
+  /// Called for every incoming foreground push that represents a chat message.
+  /// The chat list registers this so it refreshes live even when the WebSocket
+  /// momentarily lags or drops (push delivery is the reliable safety net).
+  static void Function(Map<String, dynamic> data)? onForegroundMessageData;
+
   static void setActiveChatId(String? chatId) {
     _instance._activeChatId = chatId;
+    // Opening a chat clears its pending notifications from the tray, the same
+    // way reading a WhatsApp chat dismisses its notifications.
+    if (chatId != null && chatId.isNotEmpty) {
+      unawaited(_instance.clearChatNotifications(chatId));
+    }
   }
 
   static void setActiveChatParticipantId(String? participantId) {
@@ -204,6 +214,8 @@ class NotificationService {
       return;
     }
     await markRemoteMessageDelivered(message);
+    // Keep the chat list live regardless of WebSocket health.
+    onForegroundMessageData?.call(message.data);
     final messageId =
         message.data['message_id']?.toString() ??
         message.data['id']?.toString();
@@ -366,10 +378,11 @@ class NotificationService {
       });
     }
 
+    final notificationId = _notificationIdForMessage(messageId);
     try {
       await _setupLocalNotifications();
       await _local.show(
-        _notificationIdForMessage(messageId),
+        notificationId,
         title,
         body,
         NotificationDetails(
@@ -394,10 +407,56 @@ class NotificationService {
         ),
         payload: jsonEncode(data),
       );
+      final chatId = data['chat_id']?.toString() ?? data['chat']?.toString();
+      if (chatId != null && chatId.isNotEmpty) {
+        await _recordChatNotification(chatId, notificationId);
+      }
       _logPushTiming('local message notification shown', data);
     } catch (_) {
       if (messageId != null) _shownMessageIds.remove(messageId);
       rethrow;
+    }
+  }
+
+  // Per-chat notification ids are persisted (not just in-memory) because a push
+  // can be rendered by the background isolate while the UI isolate is dead;
+  // both write here so the chat screen can later clear them on open.
+  static String _chatNotifKey(String chatId) => 'chat_notif_ids:$chatId';
+
+  Future<void> _recordChatNotification(String chatId, int notificationId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = _chatNotifKey(chatId);
+      final ids = prefs.getStringList(key) ?? <String>[];
+      final idStr = notificationId.toString();
+      ids.remove(idStr);
+      ids.add(idStr);
+      final capped = ids.length > 50
+          ? ids.sublist(ids.length - 50)
+          : ids;
+      await prefs.setStringList(key, capped);
+    } catch (e) {
+      debugPrint('Record chat notification error: $e');
+    }
+  }
+
+  /// Dismiss every tray notification belonging to [chatId]. Safe to call when
+  /// none are pending.
+  Future<void> clearChatNotifications(String chatId) async {
+    if (chatId.isEmpty) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = _chatNotifKey(chatId);
+      final ids = prefs.getStringList(key);
+      if (ids == null || ids.isEmpty) return;
+      await _setupLocalNotifications();
+      for (final idStr in ids) {
+        final id = int.tryParse(idStr);
+        if (id != null) await _local.cancel(id);
+      }
+      await prefs.remove(key);
+    } catch (e) {
+      debugPrint('Clear chat notifications error: $e');
     }
   }
 

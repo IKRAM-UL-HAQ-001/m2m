@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -92,7 +93,11 @@ class _CallHistoryTile extends StatelessWidget {
         radius: 26,
         backgroundColor: Colors.grey[300],
         backgroundImage: participant.avatarUrl != null
-            ? NetworkImage(ApiService.mediaUrl(participant.avatarUrl))
+            ? CachedNetworkImageProvider(
+                ApiService.mediaUrl(participant.avatarUrl),
+                maxWidth: 150,
+                maxHeight: 150,
+              )
             : null,
         child: participant.avatarUrl == null
             ? Icon(Icons.person, color: Colors.grey[600])

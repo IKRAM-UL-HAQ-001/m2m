@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/call_event.dart';
 import '../models/call_participant.dart';
@@ -317,17 +319,58 @@ class CallViewModel extends ChangeNotifier {
     }
   }
 
+  static const String _callHistoryCacheKey = 'cached_call_history_v1';
+
   Future<void> loadCallHistory() async {
-    _isLoadingHistory = true;
-    notifyListeners();
+    // Local-first: paint the last-known history instantly (no spinner), then
+    // refresh from the server in the background and update silently. Only show
+    // the spinner on a genuinely cold load (empty cache).
+    if (_callHistory.isEmpty) {
+      await _loadCallHistoryFromCache();
+    }
+    if (_callHistory.isEmpty) {
+      _isLoadingHistory = true;
+      notifyListeners();
+    }
     try {
       _callHistory = await _apiService.getCallHistory();
       _errorMessage = null;
+      unawaited(_cacheCallHistory());
     } catch (_) {
-      _errorMessage = 'Could not load call history.';
+      // Keep the cached list visible; only surface the error on a cold load.
+      if (_callHistory.isEmpty) _errorMessage = 'Could not load call history.';
     } finally {
       _isLoadingHistory = false;
       notifyListeners();
+    }
+  }
+
+  Future<void> _loadCallHistoryFromCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_callHistoryCacheKey);
+      if (raw == null || raw.isEmpty) return;
+      final decoded = jsonDecode(raw) as List;
+      final cached = decoded
+          .map((e) => CallSession.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+      if (cached.isNotEmpty) {
+        _callHistory = cached;
+        notifyListeners();
+      }
+    } catch (_) {
+      // Corrupt/absent cache is non-fatal; the network fetch will repopulate.
+    }
+  }
+
+  Future<void> _cacheCallHistory() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      // Cap what we persist so the cache stays small and quick to decode.
+      final toCache = _callHistory.take(50).map((c) => c.toJson()).toList();
+      await prefs.setString(_callHistoryCacheKey, jsonEncode(toCache));
+    } catch (_) {
+      // Best-effort cache.
     }
   }
 

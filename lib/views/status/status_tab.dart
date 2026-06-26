@@ -367,6 +367,8 @@ class _StatusAvatar extends StatelessWidget {
                               ? FileImage(File(imageUrl!))
                               : CachedNetworkImageProvider(
                                   ApiService.mediaUrl(imageUrl!),
+                                  maxWidth: 150,
+                                  maxHeight: 150,
                                 ))
                           as ImageProvider
                     : null,

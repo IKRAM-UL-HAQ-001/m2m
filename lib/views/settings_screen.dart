@@ -26,6 +26,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isLoadingProfile = true;
   bool _isUpdatingProfilePicture = false;
 
+  // Memoized result of File(_profilePictureUrl).existsSync(). Computing it
+  // inside build() ran synchronous disk I/O on the UI thread on every frame —
+  // including every frame of a dialog's keyboard animation — which was the main
+  // source of the laggy keyboard. We recompute only when the path changes.
+  String _resolvedPicturePath = '';
+  bool _resolvedIsLocalPicture = false;
+
+  bool get _hasLocalProfileImage {
+    if (_profilePictureUrl != _resolvedPicturePath) {
+      _resolvedPicturePath = _profilePictureUrl;
+      _resolvedIsLocalPicture =
+          _profilePictureUrl.isNotEmpty &&
+          File(_profilePictureUrl).existsSync();
+    }
+    return _resolvedIsLocalPicture;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -164,7 +181,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       return;
     }
 
-    final isLocal = File(_profilePictureUrl).existsSync();
+    final isLocal = _hasLocalProfileImage;
     final ImageProvider previewProvider = isLocal
         ? FileImage(File(_profilePictureUrl))
         : CachedNetworkImageProvider(ApiService.mediaUrl(_profilePictureUrl));
@@ -532,12 +549,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final bool hasLocalImage =
-        _profilePictureUrl.isNotEmpty && File(_profilePictureUrl).existsSync();
+    final bool hasLocalImage = _hasLocalProfileImage;
     final bool hasNetworkImage =
         _profilePictureUrl.isNotEmpty && !hasLocalImage;
 
     return Scaffold(
+      // This is a static list; the editing dialogs own the keyboard. Disabling
+      // the resize keeps this screen from relaying out on every keyboard frame
+      // underneath the dialog, so the dialog's keyboard stays smooth.
+      resizeToAvoidBottomInset: false,
       appBar: AppBar(
         title: const Text('Settings', style: TextStyle(color: Colors.white)),
         backgroundColor: AppColors.primaryColor,

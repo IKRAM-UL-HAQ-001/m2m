@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 class Responsive {
-  static MediaQueryData? _mediaQuery;
   static double screenWidth = 390;
   static double screenHeight = 844;
   static double statusBarHeight = 0;
@@ -9,15 +8,27 @@ class Responsive {
   static double _textScaleFactor = 1;
 
   static void init(BuildContext context) {
-    _mediaQuery = MediaQuery.of(context);
-    screenWidth = _mediaQuery!.size.width;
-    screenHeight = _mediaQuery!.size.height;
-    statusBarHeight = _mediaQuery!.padding.top;
-    bottomNavHeight = _mediaQuery!.padding.bottom;
-    _textScaleFactor = _mediaQuery!.textScaler
-        .scale(1)
-        .clamp(0.8, 1.3)
-        .toDouble();
+    // Depend ONLY on the fields we actually read (size, padding, textScaler).
+    // Using MediaQuery.of(context) here would subscribe the calling widget to
+    // the *entire* MediaQueryData — including viewInsets, which changes on every
+    // frame of the keyboard open/close animation. That makes the whole screen
+    // rebuild ~60x while the keyboard slides in, causing visible jank.
+    // The granular *Of(context) accessors only notify when their own field changes.
+    //
+    // We read viewPadding (NOT padding) for the status/nav-bar insets: `padding`
+    // is `viewPadding` minus `viewInsets`, so its bottom collapses to 0 as the
+    // keyboard crosses the nav bar — which would still rebuild the screen every
+    // keyboard frame. `viewPadding` is the physical inset and stays constant
+    // while the keyboard animates, so the screen no longer rebuilds with it.
+    final Size size = MediaQuery.sizeOf(context);
+    final EdgeInsets padding = MediaQuery.viewPaddingOf(context);
+    final TextScaler textScaler = MediaQuery.textScalerOf(context);
+
+    screenWidth = size.width;
+    screenHeight = size.height;
+    statusBarHeight = padding.top;
+    bottomNavHeight = padding.bottom;
+    _textScaleFactor = textScaler.scale(1).clamp(0.8, 1.3).toDouble();
   }
 
   static double w(double percent) => screenWidth * percent / 100;

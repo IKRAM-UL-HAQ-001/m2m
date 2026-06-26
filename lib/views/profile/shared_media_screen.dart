@@ -81,7 +81,7 @@ class MediaTab extends StatelessWidget {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  _mediaImage(media, imageUrl, BoxFit.cover),
+                  _mediaImage(media, imageUrl, BoxFit.cover, decodeWidth: 300),
                   if (media.messageType == 'video')
                     const Center(
                       child: Icon(
@@ -358,12 +358,23 @@ Future<void> _openFile(SharedMedia file) async {
   await launchUrl(uri, mode: LaunchMode.externalApplication);
 }
 
-Widget _mediaImage(SharedMedia media, String remoteUrl, BoxFit fit) {
+Widget _mediaImage(
+  SharedMedia media,
+  String remoteUrl,
+  BoxFit fit, {
+  int? decodeWidth,
+}) {
   final localPath = media.localFilePath;
   if (localPath != null && File(localPath).existsSync()) {
-    return Image.file(File(localPath), fit: fit);
+    // decodeWidth keeps grid thumbnails from decoding at full resolution
+    // (huge memory in a media-heavy chat); the full-screen viewer passes null.
+    return Image.file(File(localPath), fit: fit, cacheWidth: decodeWidth);
   }
-  return CachedNetworkImage(imageUrl: ApiService.mediaUrl(remoteUrl), fit: fit);
+  return CachedNetworkImage(
+    imageUrl: ApiService.mediaUrl(remoteUrl),
+    fit: fit,
+    memCacheWidth: decodeWidth,
+  );
 }
 
 typedef _SharedMediaBuilder =

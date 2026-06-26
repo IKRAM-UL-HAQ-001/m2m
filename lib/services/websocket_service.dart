@@ -312,10 +312,15 @@ class SocketService extends ChangeNotifier {
 
   void _scheduleReconnect() {
     if (!_shouldReconnect || _reconnectTimer != null) return;
-    if (_reconnectAttempts >= _maxReconnectAttempts) return;
 
+    // Keep retrying for as long as we're meant to be connected. Backoff grows
+    // exponentially but is capped at 30s; we never permanently give up, because
+    // doing so left the chat list silently stale (no live updates) until the
+    // app was next resumed.
     final seconds = min(30, pow(2, _reconnectAttempts).toInt());
-    _reconnectAttempts++;
+    if (_reconnectAttempts < _maxReconnectAttempts) {
+      _reconnectAttempts++;
+    }
     _reconnectTimer = Timer(Duration(seconds: seconds), () {
       _reconnectTimer = null;
       if (_shouldReconnect) {

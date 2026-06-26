@@ -63,30 +63,22 @@ class ChatInputBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // No bottom SafeArea here: the parent (_KeyboardAwareChatBody) positions the
+    // composer above the nav bar / keyboard using the stable viewPadding inset,
+    // so applying it here too would double-count it and rebuild this bar on every
+    // keyboard frame (SafeArea depends on the animating MediaQuery.padding).
     if (isLocked) {
-      return SafeArea(
-        top: false,
-        left: false,
-        right: false,
-        bottom: true,
-        child: _buildLockedRecordingUI(),
-      );
+      return _buildLockedRecordingUI();
     }
-    return SafeArea(
-      top: false,
-      left: false,
-      right: false,
-      bottom: true,
-      child: Container(
-        color: const Color(0xFFF0F0F0),
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (replyingToMessage != null) _buildReplyPreview(),
-            _buildInputRow(),
-          ],
-        ),
+    return Container(
+      color: const Color(0xFFF0F0F0),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (replyingToMessage != null) _buildReplyPreview(),
+          _buildInputRow(),
+        ],
       ),
     );
   }

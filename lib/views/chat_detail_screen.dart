@@ -97,6 +97,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
 
   Set<String> _downloadedUrls = {};
   String? _currentChatId;
+  MessageSyncStateEntity? _initialSyncState;
   late final ChatViewModel _chatViewModel;
   final Set<String> _recentSocketMessageKeys = {};
   final List<String> _recentSocketMessageOrder = [];
@@ -111,7 +112,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   StreamSubscription<Map<String, dynamic>>? _deleteSubscription;
   StreamSubscription<Map<String, dynamic>>? _reactionSubscription;
   StreamSubscription<Map<String, dynamic>>? _presenceSubscription;
-  Timer? _presencePollTimer;
   bool _isOnline = false;
 
   @override
@@ -125,18 +125,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     NotificationService.setActiveChatId(_currentChatId);
     NotificationService.setActiveChatParticipantId(widget.chat.receiverId);
     _scrollController.addListener(_handleHistoryScroll);
-    _loadDownloadedFiles();
-    _loadMessages();
+    // Critical path only: subscribe to live socket events and paint cached
+    // messages immediately so the chat opens instantly.
     _listenToSocket();
-    _listenToPresence();
-    if (!_currentChatId!.startsWith('new_')) {
-      SocketService().sendChatOpened(_currentChatId!);
-      _markCurrentChatRead();
-    }
+    _loadCachedMessages();
     _focusNode.addListener(() {
-      if (_focusNode.hasFocus && _showEmojiPicker) {
-        setState(() => _showEmojiPicker = false);
-      }
+      if (!_focusNode.hasFocus) return;
+      if (!_showEmojiPicker) return;
+      if (!mounted) return;
+      setState(() => _showEmojiPicker = false);
     });
     _pulseController = AnimationController(
       vsync: this,
@@ -153,6 +150,21 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       begin: 0.3,
       end: 1.0,
     ).animate(_blinkController);
+
+    // Defer non-critical I/O (network refresh, presence polling, read receipts,
+    // prefs) until after the first frame so opening the chat and the keyboard
+    // stay smooth instead of competing with this work on the same frames.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _loadDownloadedFiles();
+      _listenToPresence();
+      final chatId = _currentChatId;
+      if (chatId != null && !chatId.startsWith('new_')) {
+        SocketService().sendChatOpened(chatId);
+        _markCurrentChatRead();
+      }
+      _refreshMessagesIfStale();
+    });
   }
 
   void _updateOnline(bool isOnline) {
@@ -172,10 +184,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
         _updateOnline(data['is_online'] == true);
       }
     });
-    _presencePollTimer = Timer.periodic(
-      const Duration(seconds: 10),
-      (_) => _pollPresence(),
-    );
+    // Presence arrives live over the socket (presenceStream above). We only do
+    // a single seed fetch on open to show the current state immediately; no
+    // periodic polling — that was hitting the backend every 10s and merely
+    // duplicating what the socket already pushes.
     unawaited(_pollPresence());
   }
 
@@ -297,7 +309,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     _deleteSubscription?.cancel();
     _reactionSubscription?.cancel();
     _presenceSubscription?.cancel();
-    _presencePollTimer?.cancel();
     _typingClearTimer?.cancel();
     _typingDebounceTimer?.cancel();
     _highlightTimer?.cancel();
@@ -320,15 +331,17 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     super.dispose();
   }
 
-  Future<void> _loadMessages() async {
+  /// Fast, local-only load that paints the conversation immediately on open.
+  /// The (slower) network refresh is deferred to [_refreshMessagesIfStale].
+  Future<void> _loadCachedMessages() async {
     if (_currentChatId == null || _currentChatId!.startsWith('new_')) {
       setState(() => _isLoading = false);
       return;
     }
     final chatId = _currentChatId!;
-    MessageSyncStateEntity? syncState;
     try {
-      syncState = await _db.getMessageSyncState(chatId);
+      final syncState = await _db.getMessageSyncState(chatId);
+      _initialSyncState = syncState;
       final cachedMessages = await _db.getCachedMessages(
         chatId,
         limit: _messagePageSize,
@@ -348,7 +361,16 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     } catch (e) {
       debugPrint('Error loading cached messages: $e');
     }
+  }
 
+  /// Pulls the latest messages from the server unless the local cache is still
+  /// fresh. Runs after the first frame so it never blocks chat/keyboard open.
+  Future<void> _refreshMessagesIfStale() async {
+    final chatId = _currentChatId;
+    if (chatId == null || chatId.startsWith('new_')) return;
+    // Falls back to a direct read in case the cached load (async) hasn't
+    // populated _initialSyncState yet, so the freshness skip still applies.
+    final syncState = _initialSyncState ?? await _db.getMessageSyncState(chatId);
     final lastRefresh = syncState?.lastRefreshedAt;
     final cacheIsFresh =
         lastRefresh != null &&
@@ -1658,13 +1680,21 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   @override
   Widget build(BuildContext context) {
     Responsive.init(context);
+
     return PopScope(
       canPop: !_isSelectionMode,
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop && _isSelectionMode) _exitSelectionMode();
       },
       child: Scaffold(
-        resizeToAvoidBottomInset: true,
+        // Keep resizeToAvoidBottomInset at its default (true): the Scaffold then
+        // consumes the keyboard inset itself, so (a) the composer is pinned right
+        // above the keyboard automatically, and (b) the body's MediaQuery padding
+        // stays *stable* while the keyboard animates — only the body height
+        // relayouts (cheap, RepaintBoundary tiles don't repaint), no per-frame
+        // rebuild. This is the WhatsApp-style layout. Do NOT set it to false and
+        // position manually — that left the composer behind the keyboard and made
+        // the padding animate, which caused the laggy panel shift.
         appBar: _buildAppBar(),
         body: SafeArea(
           top: false,
@@ -1672,17 +1702,20 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
           child: Column(
             children: [
               Expanded(
-                child: GestureDetector(
-                  onTap: () {
-                    _focusNode.unfocus();
-                    if (_showEmojiPicker) {
-                      setState(() => _showEmojiPicker = false);
-                    }
-                  },
-                  child: _buildChatArea(),
+                child: RepaintBoundary(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () {
+                      if (_focusNode.hasFocus) _focusNode.unfocus();
+                      if (_showEmojiPicker) {
+                        setState(() => _showEmojiPicker = false);
+                      }
+                    },
+                    child: _buildChatArea(),
+                  ),
                 ),
               ),
-              _buildComposerArea(),
+              RepaintBoundary(child: _buildComposerArea()),
               if (_showEmojiPicker)
                 RepaintBoundary(
                   child: SizedBox(
@@ -1690,7 +1723,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
                     child: _buildEmojiPicker(),
                   ),
                 ),
-              const _KeyboardInsetSpacer(),
             ],
           ),
         ),
@@ -1742,6 +1774,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
                   backgroundImage: widget.chat.avatarUrl.isNotEmpty
                       ? CachedNetworkImageProvider(
                           ApiService.mediaUrl(widget.chat.avatarUrl),
+                          maxWidth: 72,
+                          maxHeight: 72,
                         )
                       : null,
                   child: widget.chat.avatarUrl.isEmpty
@@ -2102,11 +2136,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     if (_showEmojiPicker) {
       setState(() => _showEmojiPicker = false);
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _focusNode.requestFocus();
+        if (!mounted) return;
+        _focusNode.requestFocus();
       });
     } else {
       _focusNode.unfocus();
-      setState(() => _showEmojiPicker = true);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() => _showEmojiPicker = true);
+      });
     }
   }
 
@@ -2151,15 +2189,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       ),
       child: _cachedEmojiPicker!,
     );
-  }
-}
-
-class _KeyboardInsetSpacer extends StatelessWidget {
-  const _KeyboardInsetSpacer();
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(height: MediaQuery.of(context).viewInsets.bottom);
   }
 }
 

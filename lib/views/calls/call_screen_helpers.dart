@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -20,7 +21,11 @@ Widget callAvatar(CallParticipant participant, {double radius = 44}) {
     radius: radius,
     backgroundColor: Colors.grey[300],
     backgroundImage: avatarUrl != null
-        ? NetworkImage(ApiService.mediaUrl(avatarUrl))
+        ? CachedNetworkImageProvider(
+            ApiService.mediaUrl(avatarUrl),
+            maxWidth: 250,
+            maxHeight: 250,
+          )
         : null,
     child: avatarUrl == null
         ? Icon(Icons.person, size: radius, color: Colors.grey[600])

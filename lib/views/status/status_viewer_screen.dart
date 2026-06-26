@@ -24,7 +24,10 @@ class _StatusViewerScreenState extends State<StatusViewerScreen> {
   VideoPlayerController? _videoController;
   late List<UserStatus> _statuses;
   int _currentIndex = 0;
-  double _progress = 0;
+  // Story progress is a notifier so the 50ms ticker repaints only the thin
+  // progress bar via a ValueListenableBuilder — not the whole full-screen
+  // image/video viewer (which a setState every 50ms was doing = 20 rebuilds/s).
+  final ValueNotifier<double> _progress = ValueNotifier<double>(0);
   bool _isPaused = false;
 
   UserStatus get _currentStatus => _statuses[_currentIndex];
@@ -41,6 +44,7 @@ class _StatusViewerScreenState extends State<StatusViewerScreen> {
   void dispose() {
     _timer?.cancel();
     _videoController?.dispose();
+    _progress.dispose();
     super.dispose();
   }
 
@@ -66,21 +70,24 @@ class _StatusViewerScreenState extends State<StatusViewerScreen> {
               top: topPadding + 8,
               left: 8,
               right: 8,
-              child: Row(
-                children: List.generate(
-                  _statuses.length,
-                  (index) => Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 2),
-                      child: LinearProgressIndicator(
-                        value: index < _currentIndex
-                            ? 1
-                            : index == _currentIndex
-                            ? _progress
-                            : 0,
-                        backgroundColor: Colors.white38,
-                        valueColor: const AlwaysStoppedAnimation(Colors.white),
-                        minHeight: 2,
+              child: ValueListenableBuilder<double>(
+                valueListenable: _progress,
+                builder: (context, progress, _) => Row(
+                  children: List.generate(
+                    _statuses.length,
+                    (index) => Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 2),
+                        child: LinearProgressIndicator(
+                          value: index < _currentIndex
+                              ? 1
+                              : index == _currentIndex
+                              ? progress
+                              : 0,
+                          backgroundColor: Colors.white38,
+                          valueColor: const AlwaysStoppedAnimation(Colors.white),
+                          minHeight: 2,
+                        ),
                       ),
                     ),
                   ),
@@ -290,7 +297,7 @@ class _StatusViewerScreenState extends State<StatusViewerScreen> {
   Future<void> _showCurrentStatus() async {
     final statusViewModel = context.read<StatusViewModel>();
     _timer?.cancel();
-    _progress = 0;
+    _progress.value = 0;
     _isPaused = false;
     await _videoController?.dispose();
     _videoController = null;
@@ -324,10 +331,9 @@ class _StatusViewerScreenState extends State<StatusViewerScreen> {
         : 5.0;
     _timer = Timer.periodic(const Duration(milliseconds: 50), (_) {
       if (!mounted || _isPaused) return;
-      setState(() {
-        _progress += 0.05 / duration;
-      });
-      if (_progress >= 1) {
+      // Updates the notifier only — repaints the progress bar, not the screen.
+      _progress.value += 0.05 / duration;
+      if (_progress.value >= 1) {
         _nextStatus();
       }
     });
@@ -335,9 +341,9 @@ class _StatusViewerScreenState extends State<StatusViewerScreen> {
 
   void _nextStatus() {
     if (_currentIndex < _statuses.length - 1) {
+      _progress.value = 0;
       setState(() {
         _currentIndex++;
-        _progress = 0;
       });
       _showCurrentStatus();
     } else {
@@ -347,12 +353,12 @@ class _StatusViewerScreenState extends State<StatusViewerScreen> {
 
   void _previousStatus() {
     if (_currentIndex == 0) {
-      setState(() => _progress = 0);
+      _progress.value = 0;
       return;
     }
+    _progress.value = 0;
     setState(() {
       _currentIndex--;
-      _progress = 0;
     });
     _showCurrentStatus();
   }

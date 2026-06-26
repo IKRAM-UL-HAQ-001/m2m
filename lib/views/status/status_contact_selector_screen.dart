@@ -146,6 +146,8 @@ class _StatusContactSelectorScreenState
                               backgroundImage: contact.photoUrl != null
                                   ? CachedNetworkImageProvider(
                                       ApiService.mediaUrl(contact.photoUrl!),
+                                      maxWidth: 150,
+                                      maxHeight: 150,
                                     )
                                   : null,
                               backgroundColor: AppColors.primaryColor
