@@ -9,6 +9,7 @@ import '../../services/api_service.dart';
 import '../../utils/constants.dart';
 import '../../viewmodels/call_viewmodel.dart';
 import 'call_screen_helpers.dart';
+import 'outgoing_call_screen.dart';
 
 class CallsTab extends StatefulWidget {
   const CallsTab({super.key, this.searchQuery = ''});
@@ -75,6 +76,45 @@ class _CallHistoryTile extends StatelessWidget {
 
   final CallSession call;
 
+  // Tap a history entry to re-dial that contact with the same call type — the
+  // standard call-app gesture. Mirrors chat_detail's _startCall flow.
+  Future<void> _redial(BuildContext context) async {
+    final participant = _historyParticipant(call);
+    final receiverId = int.tryParse(participant.id);
+    final vm = context.read<CallViewModel>();
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    if (receiverId == null) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Unable to start call for this contact')),
+      );
+      return;
+    }
+    if (!vm.canStartCall) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('You are already in a call')),
+      );
+      return;
+    }
+    final started = await vm.startCall(
+      receiverId: receiverId,
+      callType: call.callType.value,
+    );
+    if (!context.mounted) return;
+    if (started == null) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(vm.errorMessage ?? 'Unable to start call')),
+      );
+      return;
+    }
+    navigator.push(
+      MaterialPageRoute(
+        settings: const RouteSettings(name: OutgoingCallScreen.routeName),
+        builder: (_) => const OutgoingCallScreen(),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final participant = _historyParticipant(call);
@@ -89,6 +129,7 @@ class _CallHistoryTile extends StatelessWidget {
 
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      onTap: () => _redial(context),
       leading: CircleAvatar(
         radius: 26,
         backgroundColor: Colors.grey[300],
