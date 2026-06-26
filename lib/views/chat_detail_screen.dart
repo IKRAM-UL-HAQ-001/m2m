@@ -112,6 +112,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   StreamSubscription<Map<String, dynamic>>? _deleteSubscription;
   StreamSubscription<Map<String, dynamic>>? _reactionSubscription;
   StreamSubscription<Map<String, dynamic>>? _presenceSubscription;
+  Timer? _deferredRefreshTimer;
   bool _isOnline = false;
 
   @override
@@ -161,9 +162,22 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       final chatId = _currentChatId;
       if (chatId != null && !chatId.startsWith('new_')) {
         SocketService().sendChatOpened(chatId);
-        _markCurrentChatRead();
       }
-      _refreshMessagesIfStale();
+      // The history network refresh parses the response and rebuilds the list
+      // with setState. If that lands while the user is opening the keyboard
+      // right after entering the chat, it competes with the keyboard's resize
+      // animation on the same UI-thread frames and the keyboard appears to open
+      // slowly. Cached messages are already painted, so push this one-time
+      // refresh (and the read-receipt) just past that first-tap window — it's
+      // imperceptible for freshness but keeps the keyboard open instant.
+      _deferredRefreshTimer = Timer(const Duration(milliseconds: 500), () {
+        if (!mounted) return;
+        final id = _currentChatId;
+        if (id != null && !id.startsWith('new_')) {
+          _markCurrentChatRead();
+        }
+        _refreshMessagesIfStale();
+      });
     });
   }
 
@@ -309,6 +323,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     _deleteSubscription?.cancel();
     _reactionSubscription?.cancel();
     _presenceSubscription?.cancel();
+    _deferredRefreshTimer?.cancel();
     _typingClearTimer?.cancel();
     _typingDebounceTimer?.cancel();
     _highlightTimer?.cancel();
