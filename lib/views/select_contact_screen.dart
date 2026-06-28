@@ -13,10 +13,23 @@ import '../services/api_service.dart';
 import '../utils/constants.dart';
 import '../utils/url_helper.dart';
 import '../viewmodels/chat_viewmodel.dart';
+import 'calls/call_actions.dart';
 import 'chat_detail_screen.dart';
 
+/// How the contact picker behaves when a contact is tapped.
+enum ContactPickerMode {
+  /// Open the chat with the contact (default — opened from the Chats tab).
+  chat,
+
+  /// Start an audio/video call with the contact (opened from the Calls tab).
+  call,
+}
+
 class SelectContactScreen extends StatefulWidget {
-  const SelectContactScreen({super.key});
+  const SelectContactScreen({super.key, this.mode = ContactPickerMode.chat});
+
+  /// Whether tapping a contact opens a chat or starts a call.
+  final ContactPickerMode mode;
 
   @override
   State<SelectContactScreen> createState() => _SelectContactScreenState();
@@ -291,40 +304,64 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
     );
   }
 
+  Future<void> _openChat(Map<String, dynamic> user) async {
+    final profilePic = UrlHelper.fixUrl(user['profile_photo']);
+    final chatViewModel = context.read<ChatViewModel>();
+    final receiverId = user['id'].toString();
+    // Reuse the existing conversation (real id + cached/server history) if
+    // we already have one with this person. Falling back to a `new_`
+    // placeholder only for genuinely-new conversations; otherwise the
+    // detail screen would short-circuit and show no messages.
+    final chat =
+        chatViewModel.chatForReceiver(receiverId) ??
+        Chat(
+          id: "new_$receiverId",
+          receiverId: receiverId,
+          name: _displayName(user),
+          phone: (user['phone'] ?? user['phone_number'] ?? '').toString(),
+          about: (user['about'] ?? 'Available').toString(),
+          avatarUrl: profilePic,
+          lastMessage: 'Start a conversation',
+          lastMessageType: 'text',
+          lastMessageStatus: MessageStatus.sent,
+          lastMessageFileUrl: null,
+          time: DateTime.now(),
+          isOnline: user['is_online'] == true,
+        );
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => ChatDetailScreen(chat: chat)),
+    );
+    if (mounted) {
+      chatViewModel.fetchChats();
+    }
+  }
+
+  // Calls-tab flow: ask audio vs video (WhatsApp style), then dial. Capture the
+  // receiver id before the async gap; navigation is handled by the helper.
+  Future<void> _startCall(Map<String, dynamic> user) async {
+    final receiverId = int.tryParse(user['id'].toString());
+    if (receiverId == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unable to start call for this contact')),
+      );
+      return;
+    }
+    final callType = await showCallTypeSheet(context, name: _displayName(user));
+    if (callType == null || !mounted) return;
+    await startCallAndNavigate(
+      context,
+      receiverId: receiverId,
+      callType: callType,
+    );
+  }
+
   Widget _buildOnAppContact(Map<String, dynamic> user) {
     final profilePic = UrlHelper.fixUrl(user['profile_photo']);
+    final isCallMode = widget.mode == ContactPickerMode.call;
     return ListTile(
-      onTap: () async {
-        final chatViewModel = context.read<ChatViewModel>();
-        final receiverId = user['id'].toString();
-        // Reuse the existing conversation (real id + cached/server history) if
-        // we already have one with this person. Falling back to a `new_`
-        // placeholder only for genuinely-new conversations; otherwise the
-        // detail screen would short-circuit and show no messages.
-        final chat =
-            chatViewModel.chatForReceiver(receiverId) ??
-            Chat(
-              id: "new_$receiverId",
-              receiverId: receiverId,
-              name: _displayName(user),
-              phone: (user['phone'] ?? user['phone_number'] ?? '').toString(),
-              about: (user['about'] ?? 'Available').toString(),
-              avatarUrl: profilePic,
-              lastMessage: 'Start a conversation',
-              lastMessageType: 'text',
-              lastMessageStatus: MessageStatus.sent,
-              lastMessageFileUrl: null,
-              time: DateTime.now(),
-              isOnline: user['is_online'] == true,
-            );
-        await Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => ChatDetailScreen(chat: chat)),
-        );
-        if (mounted) {
-          chatViewModel.fetchChats();
-        }
-      },
+      onTap: () => isCallMode ? _startCall(user) : _openChat(user),
       leading: CircleAvatar(
         backgroundImage: profilePic.isNotEmpty
             ? CachedNetworkImageProvider(
@@ -346,7 +383,10 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
         user['phone']?.toString() ?? '',
         style: TextStyle(color: Colors.grey[600]),
       ),
-      trailing: const Icon(Icons.chat, color: AppColors.primaryColor),
+      trailing: Icon(
+        isCallMode ? Icons.call : Icons.chat,
+        color: AppColors.primaryColor,
+      ),
     );
   }
 

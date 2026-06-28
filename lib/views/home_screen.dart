@@ -305,7 +305,7 @@ class _HomeScreenState extends State<HomeScreen>
       return FloatingActionButton(
         tooltip: 'New chat',
         backgroundColor: AppColors.floatingButtonColor,
-        onPressed: _openContactPicker,
+        onPressed: () => _openContactPicker(ContactPickerMode.chat),
         child: const Icon(Icons.message, color: Colors.white),
       );
     }
@@ -313,17 +313,17 @@ class _HomeScreenState extends State<HomeScreen>
       return FloatingActionButton(
         tooltip: 'New call',
         backgroundColor: AppColors.floatingButtonColor,
-        onPressed: _openContactPicker,
+        onPressed: () => _openContactPicker(ContactPickerMode.call),
         child: const Icon(Icons.add_call, color: Colors.white),
       );
     }
     return null;
   }
 
-  void _openContactPicker() {
+  void _openContactPicker(ContactPickerMode mode) {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (context) => const SelectContactScreen()),
+      MaterialPageRoute(builder: (context) => SelectContactScreen(mode: mode)),
     );
   }
 

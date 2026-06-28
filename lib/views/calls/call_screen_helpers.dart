@@ -1,11 +1,100 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 
 import '../../models/call_participant.dart';
 import '../../models/call_session.dart';
 import '../../services/api_service.dart';
 import '../../utils/constants.dart';
+
+/// Whether the current user placed [call] (outgoing) vs received it (incoming).
+bool isOutgoingCall(CallSession call) {
+  return ApiService.currentUserId != null &&
+      call.caller.id == ApiService.currentUserId;
+}
+
+/// WhatsApp-style directional indicator for a call-history row: a colored
+/// arrow + a short label that distinguishes missed / incoming / outgoing /
+/// ongoing. Reds for unanswered, green for a completed call, primary for live.
+class CallTypeIndicator {
+  const CallTypeIndicator({
+    required this.icon,
+    required this.color,
+    required this.label,
+  });
+
+  final IconData icon;
+  final Color color;
+  final String label;
+}
+
+CallTypeIndicator callTypeIndicator(CallSession call) {
+  final outgoing = isOutgoingCall(call);
+  const green = Color(0xFF4CAF50);
+
+  // A live/active call still in the history feed.
+  if (call.isActive &&
+      call.status != 'initiated' &&
+      call.status != 'ringing') {
+    return const CallTypeIndicator(
+      icon: Icons.call,
+      color: AppColors.primaryColor,
+      label: 'Ongoing',
+    );
+  }
+
+  switch (call.status) {
+    case 'missed':
+      // An unanswered call the current user received.
+      return const CallTypeIndicator(
+        icon: Icons.call_missed,
+        color: Colors.red,
+        label: 'Missed',
+      );
+    case 'rejected':
+      return CallTypeIndicator(
+        icon: outgoing ? Icons.call_made : Icons.call_received,
+        color: Colors.red,
+        label: 'Declined',
+      );
+    case 'cancelled':
+      // Caller hung up before it was answered → "missed" on the callee side,
+      // an unanswered outgoing attempt on the caller side.
+      return CallTypeIndicator(
+        icon: outgoing ? Icons.call_made : Icons.call_missed,
+        color: Colors.red,
+        label: outgoing ? 'Outgoing' : 'Missed',
+      );
+    case 'busy':
+    case 'failed':
+      return CallTypeIndicator(
+        icon: outgoing ? Icons.call_made : Icons.call_received,
+        color: Colors.red,
+        label: call.status == 'busy' ? 'Busy' : 'Failed',
+      );
+    default:
+      // ended / accepted / active answered calls.
+      return CallTypeIndicator(
+        icon: outgoing ? Icons.call_made : Icons.call_received,
+        color: green,
+        label: outgoing ? 'Outgoing' : 'Incoming',
+      );
+  }
+}
+
+/// WhatsApp-style relative timestamp for a call row: "Today, 4:30 PM",
+/// "Yesterday, 9:05 AM", or "12 Jun, 4:30 PM".
+String formatCallTimestamp(DateTime time) {
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  final that = DateTime(time.year, time.month, time.day);
+  final timeStr = DateFormat('h:mm a').format(time);
+  final diffDays = today.difference(that).inDays;
+  if (diffDays == 0) return 'Today, $timeStr';
+  if (diffDays == 1) return 'Yesterday, $timeStr';
+  return '${DateFormat('d MMM').format(time)}, $timeStr';
+}
 
 CallParticipant otherParticipant(CallSession call) {
   final currentUserId = ApiService.currentUserId;

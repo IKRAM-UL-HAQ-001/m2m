@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 
 import '../../../models/message.dart';
 import '../../../utils/constants.dart';
+import 'message_album.dart';
 import 'message_tile.dart';
 
 class MessageList extends StatelessWidget {
@@ -19,6 +20,7 @@ class MessageList extends StatelessWidget {
     required this.onLongPressMessage,
     required this.onReplyTap,
     required this.onOpenMediaPreview,
+    required this.onOpenAlbum,
     required this.onDownloadImage,
     required this.onOpenFile,
     required this.onShowReactionUsers,
@@ -37,6 +39,7 @@ class MessageList extends StatelessWidget {
   final ValueChanged<Message> onLongPressMessage;
   final ValueChanged<String?> onReplyTap;
   final ValueChanged<Message> onOpenMediaPreview;
+  final void Function(List<Message> album, int index) onOpenAlbum;
   final ValueChanged<String> onDownloadImage;
   final ValueChanged<String> onOpenFile;
   final void Function(String emoji, List<String> userIds) onShowReactionUsers;
@@ -66,62 +69,101 @@ class MessageList extends StatelessWidget {
                 style: TextStyle(color: Colors.grey),
               ),
             )
-          : ListView.builder(
-              controller: scrollController,
-              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-              reverse: true,
-              addAutomaticKeepAlives: false,
-              itemCount: messages.length + (isLoadingMore ? 1 : 0),
-              itemBuilder: (context, index) {
-                if (index == messages.length) {
-                  return const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 18),
-                    child: Center(
-                      child: SizedBox(
-                        width: 22,
-                        height: 22,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    ),
-                  );
-                }
-                final message = messages[index];
-                final showDate =
-                    index == messages.length - 1 ||
-                    !_isSameDay(message.time, messages[index + 1].time);
-                final isHighlighted = highlightedMessageId == message.id;
-                final tile = MessageTile(
-                  message: message,
-                  isHighlighted: isHighlighted,
-                  downloadedUrls: downloadedUrls,
-                  onLongPress: onLongPressMessage,
-                  onReplyTap: onReplyTap,
-                  onOpenMediaPreview: onOpenMediaPreview,
-                  onDownloadImage: onDownloadImage,
-                  onOpenFile: onOpenFile,
-                  onShowReactionUsers: onShowReactionUsers,
-                  isSelected: selectedMessageIds.contains(message.id),
-                  isSelectionMode: isSelectionMode,
-                  onTap: onTapMessage != null
-                      ? () => onTapMessage!(message)
-                      : null,
+          : Builder(
+              builder: (context) {
+                // Group adjacent media into WhatsApp-style albums. Disabled in
+                // selection mode so every photo stays individually selectable.
+                final items = buildRenderItems(
+                  messages,
+                  enableGrouping: !isSelectionMode,
                 );
-                final targetKey = targetKeyForId(message.id);
+                return ListView.builder(
+                  controller: scrollController,
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                  reverse: true,
+                  addAutomaticKeepAlives: false,
+                  itemCount: items.length + (isLoadingMore ? 1 : 0),
+                  itemBuilder: (context, index) {
+                    if (index == items.length) {
+                      return const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 18),
+                        child: Center(
+                          child: SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        ),
+                      );
+                    }
+                    final item = items[index];
+                    final showDate =
+                        index == items.length - 1 ||
+                        !_isSameDay(item.refTime, items[index + 1].refTime);
 
-                return Column(
-                  children: [
-                    if (showDate) _buildDateChip(message.time),
-                    RepaintBoundary(
-                      key: ValueKey('message_${message.id}'),
-                      child: targetKey == null
-                          ? tile
-                          : KeyedSubtree(key: targetKey, child: tile),
-                    ),
-                  ],
+                    return Column(
+                      children: [
+                        if (showDate) _buildDateChip(item.refTime),
+                        _buildItem(item),
+                      ],
+                    );
+                  },
                 );
               },
             ),
+    );
+  }
+
+  Widget _buildItem(MessageRenderItem item) {
+    if (item is AlbumRenderItem) {
+      final isHighlighted =
+          highlightedMessageId != null &&
+          item.containsId(highlightedMessageId!);
+      // Reuse a contained message's scroll-target key so reply-jumps still land
+      // on the album.
+      GlobalKey? targetKey;
+      for (final m in item.messages) {
+        targetKey = targetKeyForId(m.id);
+        if (targetKey != null) break;
+      }
+      final tile = AlbumMessageTile(
+        messages: item.messages,
+        isHighlighted: isHighlighted,
+        onOpen: (i) => onOpenAlbum(item.messages, i),
+        onLongPress: () => onLongPressMessage(item.messages.last),
+      );
+      return RepaintBoundary(
+        key: ValueKey('album_${item.messages.first.id}'),
+        child: targetKey == null
+            ? tile
+            : KeyedSubtree(key: targetKey, child: tile),
+      );
+    }
+
+    final message = (item as SingleRenderItem).message;
+    final tile = MessageTile(
+      message: message,
+      isHighlighted: highlightedMessageId == message.id,
+      downloadedUrls: downloadedUrls,
+      onLongPress: onLongPressMessage,
+      onReplyTap: onReplyTap,
+      onOpenMediaPreview: onOpenMediaPreview,
+      onDownloadImage: onDownloadImage,
+      onOpenFile: onOpenFile,
+      onShowReactionUsers: onShowReactionUsers,
+      isSelected: selectedMessageIds.contains(message.id),
+      isSelectionMode: isSelectionMode,
+      onTap: onTapMessage != null ? () => onTapMessage!(message) : null,
+    );
+    final targetKey = targetKeyForId(message.id);
+    return RepaintBoundary(
+      key: ValueKey('message_${message.id}'),
+      child: targetKey == null
+          ? tile
+          : KeyedSubtree(key: targetKey, child: tile),
     );
   }
 

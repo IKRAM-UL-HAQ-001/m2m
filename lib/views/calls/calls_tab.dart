@@ -1,6 +1,5 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../models/call_participant.dart';
@@ -8,8 +7,9 @@ import '../../models/call_session.dart';
 import '../../services/api_service.dart';
 import '../../utils/constants.dart';
 import '../../viewmodels/call_viewmodel.dart';
+import 'call_actions.dart';
+import 'call_detail_screen.dart';
 import 'call_screen_helpers.dart';
-import 'outgoing_call_screen.dart';
 
 class CallsTab extends StatefulWidget {
   const CallsTab({super.key, this.searchQuery = ''});
@@ -76,60 +76,40 @@ class _CallHistoryTile extends StatelessWidget {
 
   final CallSession call;
 
-  // Tap a history entry to re-dial that contact with the same call type — the
-  // standard call-app gesture. Mirrors chat_detail's _startCall flow.
-  Future<void> _redial(BuildContext context) async {
+  // Tapping a row opens the call details (WhatsApp behaviour). The trailing
+  // call/video button is what re-dials the contact.
+  void _openDetails(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => CallDetailScreen(call: call)),
+    );
+  }
+
+  Future<void> _dial(BuildContext context) async {
     final participant = _historyParticipant(call);
     final receiverId = int.tryParse(participant.id);
-    final vm = context.read<CallViewModel>();
-    final messenger = ScaffoldMessenger.of(context);
-    final navigator = Navigator.of(context);
     if (receiverId == null) {
-      messenger.showSnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Unable to start call for this contact')),
       );
       return;
     }
-    if (!vm.canStartCall) {
-      messenger.showSnackBar(
-        const SnackBar(content: Text('You are already in a call')),
-      );
-      return;
-    }
-    final started = await vm.startCall(
+    await startCallAndNavigate(
+      context,
       receiverId: receiverId,
       callType: call.callType.value,
-    );
-    if (!context.mounted) return;
-    if (started == null) {
-      messenger.showSnackBar(
-        SnackBar(content: Text(vm.errorMessage ?? 'Unable to start call')),
-      );
-      return;
-    }
-    navigator.push(
-      MaterialPageRoute(
-        settings: const RouteSettings(name: OutgoingCallScreen.routeName),
-        builder: (_) => const OutgoingCallScreen(),
-      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final participant = _historyParticipant(call);
-    final isOutgoing = ApiService.currentUserId == call.caller.id;
+    final indicator = callTypeIndicator(call);
     final duration = formatHistoryDuration(call.durationSeconds);
     final time = call.createdAt ?? call.startedAt ?? DateTime.now();
-    final statusColor = switch (call.status) {
-      'missed' || 'rejected' || 'failed' => Colors.red,
-      'ended' => const Color(0xFF4CAF50),
-      _ => AppColors.primaryColor,
-    };
 
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      onTap: () => _redial(context),
+      onTap: () => _openDetails(context),
       leading: CircleAvatar(
         radius: 26,
         backgroundColor: Colors.grey[300],
@@ -148,20 +128,19 @@ class _CallHistoryTile extends StatelessWidget {
         participant.name,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: const TextStyle(fontWeight: FontWeight.w600),
+        style: TextStyle(
+          fontWeight: FontWeight.w600,
+          color: indicator.color == Colors.red ? Colors.red : null,
+        ),
       ),
       subtitle: Row(
         children: [
-          Icon(
-            isOutgoing ? Icons.call_made : Icons.call_received,
-            size: 15,
-            color: statusColor,
-          ),
+          Icon(indicator.icon, size: 15, color: indicator.color),
           const SizedBox(width: 4),
           Flexible(
             child: Text(
               [
-                callStatusText(call.status),
+                indicator.label,
                 if (duration.isNotEmpty) duration,
               ].join(' · '),
               maxLines: 1,
@@ -170,19 +149,22 @@ class _CallHistoryTile extends StatelessWidget {
           ),
         ],
       ),
-      trailing: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.end,
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            call.callType == CallType.video ? Icons.videocam : Icons.call,
-            color: AppColors.primaryColor,
-            size: 20,
-          ),
-          const SizedBox(height: 4),
           Text(
-            DateFormat('MMM d').format(time),
+            formatCallTimestamp(time),
             style: TextStyle(color: Colors.grey[600], fontSize: 12),
+          ),
+          IconButton(
+            tooltip: call.callType == CallType.video
+                ? 'Video call'
+                : 'Audio call',
+            icon: Icon(
+              call.callType == CallType.video ? Icons.videocam : Icons.call,
+              color: AppColors.primaryColor,
+            ),
+            onPressed: () => _dial(context),
           ),
         ],
       ),

@@ -33,6 +33,7 @@ import '../viewmodels/call_viewmodel.dart';
 import '../widgets/forward_contact_picker_sheet.dart';
 import '../widgets/profile_quick_modal.dart';
 import 'chat/widgets/chat_input_bar.dart';
+import 'chat/widgets/media_gallery_screen.dart';
 import 'chat/widgets/message_list.dart';
 import 'calls/outgoing_call_screen.dart';
 
@@ -1107,16 +1108,29 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   }
 
   void _pickImage(ImageSource source) async {
+    final picker = ImagePicker();
+    // Camera is inherently single-shot.
     if (source == ImageSource.camera) {
       final hasCam = await PermissionService.requestCamera(context);
       if (!hasCam) return;
-    } else {
-      final hasStorage = await PermissionService.requestPhotos(context);
-      if (!hasStorage) return;
+      final picked = await picker.pickImage(source: source, imageQuality: 80);
+      if (picked != null) {
+        await _sendFileMessage(File(picked.path), type: 'image');
+      }
+      return;
     }
-    final picker = ImagePicker();
-    final picked = await picker.pickImage(source: source, imageQuality: 80);
-    if (picked != null) _sendFileMessage(File(picked.path), type: 'image');
+    // Gallery: allow picking several photos/videos at once (WhatsApp-style).
+    // They send in order and render as one album in the chat.
+    final hasStorage = await PermissionService.requestPhotos(context);
+    if (!hasStorage) return;
+    final picked = await picker.pickMultipleMedia(imageQuality: 80);
+    if (picked.isEmpty) return;
+    for (final file in picked) {
+      final isVid =
+          (file.mimeType?.startsWith('video/') ?? false) ||
+          _isVideoUrl(file.path);
+      await _sendFileMessage(File(file.path), type: isVid ? 'video' : 'image');
+    }
   }
 
   void _pickVideo() async {
@@ -1256,6 +1270,41 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
           caption: message.text == '[File]' ? null : message.text,
           heroTag: 'media-${message.id}',
         ),
+      ),
+    );
+  }
+
+  // Real caption, or null for the auto-generated media placeholders ([File],
+  // "📷 Photo", etc.) that should never surface as a caption.
+  String? _mediaCaption(String text) {
+    const placeholders = {
+      '[File]',
+      '📷 Photo',
+      '🎬 Video',
+      '📎 File',
+      '🎤 Voice message',
+    };
+    final trimmed = text.trim();
+    if (trimmed.isEmpty || placeholders.contains(trimmed)) return null;
+    return trimmed;
+  }
+
+  // Opens the swipeable album gallery at the tapped cell. [album] is in
+  // display (oldest-first) order, matching the grid cells.
+  void _openMediaGallery(List<Message> album, int index) {
+    final items = album.map((m) {
+      final url = ApiService.mediaUrl(m.fileUrl);
+      return GalleryMedia(
+        url: url,
+        localPath: m.localFilePath,
+        isVideo: m.type == 'video' || _isVideoUrl(url),
+        caption: _mediaCaption(m.text),
+        heroTag: 'media-${m.id}',
+      );
+    }).toList();
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => MediaGalleryScreen(items: items, initialIndex: index),
       ),
     );
   }
@@ -1936,6 +1985,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       onLongPressMessage: _onMessageLongPress,
       onReplyTap: _scrollToMessage,
       onOpenMediaPreview: _isSelectionMode ? (_) {} : _openMediaPreview,
+      onOpenAlbum: _isSelectionMode ? (_, _) {} : _openMediaGallery,
       onDownloadImage: _downloadAndSaveImage,
       onOpenFile: _openFile,
       onShowReactionUsers: _showReactionUsers,
