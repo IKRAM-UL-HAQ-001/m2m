@@ -378,12 +378,40 @@ class NotificationService {
       });
     }
 
-    final notificationId = _notificationIdForMessage(messageId);
+    final chatId = data['chat_id']?.toString() ?? data['chat']?.toString();
+    final senderId =
+        data['sender_id']?.toString() ?? data['sender']?.toString();
+    final senderName = data['sender_name']?.toString() ??
+        data['title']?.toString() ??
+        title;
+
+    // One stable notification per sender (WhatsApp-style): the first message
+    // posts a notification, subsequent messages from the same person UPDATE that
+    // same notification (same id) and stack their text in an inbox/messaging
+    // list. The id is derived from the sender (falls back to the chat) so it is
+    // identical across messages — never a random id or timestamp.
+    final groupKey = chatId ?? senderId;
+    final group = await _accumulateMessageGroup(
+      groupKey: groupKey,
+      senderName: senderName,
+      line: body,
+    );
+    final count = group.count;
+    final notificationId = _messageNotificationId(senderId, chatId);
+
+    // Title shows the sender plus the unread count once more than one is pending,
+    // e.g. "Ali (3 new messages)".
+    final displayTitle =
+        count > 1 ? '$senderName ($count new messages)' : senderName;
+    final summaryLine = count > 1 ? '$count new messages' : senderName;
+
     try {
       await _setupLocalNotifications();
       await _local.show(
         notificationId,
-        title,
+        displayTitle,
+        // Collapsed line shows the most recent message; expanded view (inbox
+        // style) shows each message stacked below the other.
         body,
         NotificationDetails(
           android: AndroidNotificationDetails(
@@ -394,20 +422,32 @@ class NotificationService {
             icon: '@mipmap/ic_launcher',
             color: const Color(0xFF6B00D7),
             playSound: true,
+            // Only ring/buzz for the freshest message; updates to an existing
+            // notification stay silent so a burst doesn't vibrate repeatedly.
+            onlyAlertOnce: count > 1,
+            number: count,
             audioAttributesUsage: AudioAttributesUsage.notificationEvent,
             category: AndroidNotificationCategory.message,
             visibility: NotificationVisibility.public,
-            styleInformation: BigTextStyleInformation(body),
+            styleInformation: count > 1
+                ? InboxStyleInformation(
+                    group.lines,
+                    contentTitle: displayTitle,
+                    summaryText: summaryLine,
+                  )
+                : BigTextStyleInformation(body, contentTitle: displayTitle),
           ),
-          iOS: const DarwinNotificationDetails(
+          iOS: DarwinNotificationDetails(
             presentAlert: true,
             presentBadge: true,
-            presentSound: true,
+            presentSound: count <= 1,
+            badgeNumber: count,
+            // Groups this sender's alerts into a single iOS notification thread.
+            threadIdentifier: groupKey ?? 'm2m_messages',
           ),
         ),
         payload: jsonEncode(data),
       );
-      final chatId = data['chat_id']?.toString() ?? data['chat']?.toString();
       if (chatId != null && chatId.isNotEmpty) {
         await _recordChatNotification(chatId, notificationId);
       }
@@ -458,6 +498,9 @@ class NotificationService {
     } catch (e) {
       debugPrint('Clear chat notifications error: $e');
     }
+    // Reset the running unread count/lines so the next message starts a fresh
+    // "1 new message" notification instead of resuming the old tally.
+    await _clearMessageGroup(chatId);
   }
 
   Future<void> showIncomingCallNotification(Map<String, dynamic> data) async {
@@ -546,10 +589,58 @@ class NotificationService {
     await _local.cancel(_notificationIdForIncomingCall(callId));
   }
 
-  int _notificationIdForMessage(String? messageId) {
-    final parsed = int.tryParse(messageId ?? '');
-    if (parsed != null) return parsed & 0x7fffffff;
-    return DateTime.now().millisecondsSinceEpoch & 0x7fffffff;
+  // A stable notification id per sender (falls back to the chat). Kept inside
+  // 0..0x3fffffff so it never collides with the incoming-call id space, which
+  // lives at 0x40000000+.
+  int _messageNotificationId(String? senderId, String? chatId) {
+    final basis = (senderId != null && senderId.isNotEmpty)
+        ? senderId
+        : (chatId ?? '');
+    return basis.hashCode & 0x3fffffff;
+  }
+
+  static String _notifGroupKey(String groupKey) => 'notif_group:$groupKey';
+
+  /// Adds [line] to the running list of pending messages for [groupKey] and
+  /// returns the updated count + lines (most-recent last, capped). Persisted so
+  /// the background isolate and the UI isolate accumulate into the same bucket.
+  Future<_MessageGroup> _accumulateMessageGroup({
+    required String? groupKey,
+    required String senderName,
+    required String line,
+  }) async {
+    if (groupKey == null || groupKey.isEmpty) {
+      return _MessageGroup(count: 1, lines: [line]);
+    }
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = _notifGroupKey(groupKey);
+      final lines = <String>[...(prefs.getStringList(key) ?? const <String>[]), line];
+      // Inbox style renders at most ~5-7 rows; keep the latest handful.
+      final capped =
+          lines.length > 6 ? lines.sublist(lines.length - 6) : lines;
+      await prefs.setStringList(key, capped);
+      // The true count (may exceed the displayed lines) lives in its own key.
+      final countKey = '$key:count';
+      final count = (prefs.getInt(countKey) ?? 0) + 1;
+      await prefs.setInt(countKey, count);
+      return _MessageGroup(count: count, lines: capped);
+    } catch (e) {
+      debugPrint('Notification group accumulate error: $e');
+      return _MessageGroup(count: 1, lines: [line]);
+    }
+  }
+
+  Future<void> _clearMessageGroup(String groupKey) async {
+    if (groupKey.isEmpty) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = _notifGroupKey(groupKey);
+      await prefs.remove(key);
+      await prefs.remove('$key:count');
+    } catch (e) {
+      debugPrint('Notification group clear error: $e');
+    }
   }
 
   int _notificationIdForIncomingCall(String callId) {
@@ -676,4 +767,13 @@ class NotificationService {
       debugPrint('Error stopping native ringtone: $e');
     }
   }
+}
+
+/// Running tally of pending messages from a single sender, used to render a
+/// grouped (inbox-style) notification that updates in place.
+class _MessageGroup {
+  const _MessageGroup({required this.count, required this.lines});
+
+  final int count;
+  final List<String> lines;
 }

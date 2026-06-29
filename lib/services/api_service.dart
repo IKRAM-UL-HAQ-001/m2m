@@ -5,6 +5,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:phone_numbers_parser/phone_numbers_parser.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/chat.dart';
@@ -54,6 +55,15 @@ class ContactDiscoveryResult {
     required this.onAppContacts,
     required this.offAppContacts,
   });
+}
+
+/// A single attempt at parsing a phone number: the text to parse and the region
+/// to interpret it in (null = the text already carries a '+' country code).
+class _PhoneCandidate {
+  const _PhoneCandidate(this.text, this.region);
+
+  final String text;
+  final IsoCode? region;
 }
 
 class ApiService {
@@ -192,13 +202,86 @@ class ApiService {
     return _asMap(response.data);
   }
 
+  /// Normalize an arbitrarily-formatted phone number to E.164 (+923435149587).
+  ///
+  /// Handles +/00 international prefixes, national numbers (via the default
+  /// country region), spaces/dashes/brackets, and bare country-code numbers.
+  /// Backed by libphonenumber (phone_numbers_parser) for correctness, with a
+  /// regex heuristic fallback so a contact sync never drops a number the parser
+  /// can't recognise. Reusable for other countries: pass e.g. '+1'.
   static String normalizeContactPhone(
     String? phone, {
     String defaultCountryCode = '+92',
   }) {
     final raw = phone ?? '';
+    final digits = raw.replaceAll(RegExp(r'\D'), '');
+    if (digits.isEmpty) return '';
+
     final hasLeadingPlus = raw.trimLeft().startsWith('+');
-    final digits = raw.replaceAll(RegExp(r'[^\d]'), '');
+    final isoCode = _isoForCountryCode(defaultCountryCode);
+
+    // Candidate parse inputs, most-specific first.
+    final candidates = <_PhoneCandidate>[];
+    if (hasLeadingPlus) {
+      candidates.add(_PhoneCandidate('+$digits', null));
+    } else if (digits.startsWith('00')) {
+      // 00 is the international call prefix in many countries -> "+".
+      candidates.add(_PhoneCandidate('+${digits.substring(2)}', null));
+    } else {
+      // National number (e.g. 03435149587) interpreted via the default region,
+      // then a bare international fallback (e.g. 923435149587 -> +92...).
+      candidates.add(_PhoneCandidate(digits, isoCode));
+      candidates.add(_PhoneCandidate('+$digits', null));
+    }
+
+    for (final candidate in candidates) {
+      try {
+        final parsed = PhoneNumber.parse(
+          candidate.text,
+          destinationCountry: candidate.region,
+        );
+        if (parsed.isValid()) return parsed.international; // +<cc><nsn> = E.164
+      } catch (_) {
+        // Try the next candidate / fall back below.
+      }
+    }
+
+    return _legacyNormalizeContactPhone(raw, defaultCountryCode);
+  }
+
+  /// Map a dial code like '+92' to an [IsoCode] region for the parser.
+  /// Extend this map to support more default countries.
+  static IsoCode _isoForCountryCode(String code) {
+    switch (code.replaceAll(RegExp(r'\D'), '')) {
+      case '92':
+        return IsoCode.PK;
+      case '1':
+        return IsoCode.US;
+      case '44':
+        return IsoCode.GB;
+      case '91':
+        return IsoCode.IN;
+      case '971':
+        return IsoCode.AE;
+      case '966':
+        return IsoCode.SA;
+      default:
+        return IsoCode.PK;
+    }
+  }
+
+  /// Best-effort heuristic used only when libphonenumber rejects the input.
+  static String _legacyNormalizeContactPhone(
+    String raw,
+    String defaultCountryCode,
+  ) {
+    var hasLeadingPlus = raw.trimLeft().startsWith('+');
+    var digits = raw.replaceAll(RegExp(r'\D'), '');
+    // Treat a leading 00 international prefix as "+".
+    if (!hasLeadingPlus && digits.startsWith('00')) {
+      hasLeadingPlus = true;
+      digits = digits.substring(2);
+    }
     final cleaned = hasLeadingPlus ? '+$digits' : digits;
     if (cleaned.isEmpty) return '';
 

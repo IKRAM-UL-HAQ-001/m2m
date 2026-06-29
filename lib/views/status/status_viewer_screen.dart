@@ -30,6 +30,13 @@ class _StatusViewerScreenState extends State<StatusViewerScreen> {
   final ValueNotifier<double> _progress = ValueNotifier<double>(0);
   bool _isPaused = false;
 
+  // Reply composer state. Kept as proper controller/focus-node fields (created
+  // once, disposed once) so tapping reply reliably opens the keyboard instead of
+  // flickering to a black screen.
+  final TextEditingController _replyController = TextEditingController();
+  final FocusNode _replyFocusNode = FocusNode();
+  bool _sendingReply = false;
+
   UserStatus get _currentStatus => _statuses[_currentIndex];
   bool get _isMyStatus => widget.statusGroup.isMine;
 
@@ -37,6 +44,9 @@ class _StatusViewerScreenState extends State<StatusViewerScreen> {
   void initState() {
     super.initState();
     _statuses = List<UserStatus>.from(widget.statusGroup.statuses);
+    // Pause the story while the user is composing a reply, resume when the
+    // keyboard is dismissed.
+    _replyFocusNode.addListener(_onReplyFocusChanged);
     _showCurrentStatus();
   }
 
@@ -45,7 +55,54 @@ class _StatusViewerScreenState extends State<StatusViewerScreen> {
     _timer?.cancel();
     _videoController?.dispose();
     _progress.dispose();
+    _replyFocusNode.removeListener(_onReplyFocusChanged);
+    _replyController.dispose();
+    _replyFocusNode.dispose();
     super.dispose();
+  }
+
+  void _onReplyFocusChanged() {
+    if (_replyFocusNode.hasFocus) {
+      if (!_isPaused) _pauseTimer();
+    } else {
+      if (_isPaused) _resumeTimer();
+    }
+  }
+
+  /// True when a reply was in progress and got dismissed — used so a tap on the
+  /// story area closes the keyboard instead of advancing to the next status.
+  bool _dismissReplyIfOpen() {
+    if (_replyFocusNode.hasFocus) {
+      _replyFocusNode.unfocus();
+      return true;
+    }
+    return false;
+  }
+
+  Future<void> _sendReply() async {
+    final text = _replyController.text.trim();
+    if (text.isEmpty || _sendingReply) return;
+    setState(() => _sendingReply = true);
+    try {
+      await ApiService().sendMessage(
+        widget.statusGroup.owner.id,
+        text,
+        clientUuid: ApiService.createClientUuid(),
+      );
+      _replyController.clear();
+      if (!mounted) return;
+      _replyFocusNode.unfocus();
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Reply sent')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not send reply: $e')));
+    } finally {
+      if (mounted) setState(() => _sendingReply = false);
+    }
   }
 
   @override
@@ -60,6 +117,10 @@ class _StatusViewerScreenState extends State<StatusViewerScreen> {
     final topPadding = MediaQuery.of(context).padding.top;
     return Scaffold(
       backgroundColor: Colors.black,
+      // Full-screen story viewer: never let the Scaffold shrink the body when the
+      // keyboard opens (that resize is what blanked the image/video to black).
+      // The reply bar lifts itself above the keyboard using viewInsets instead.
+      resizeToAvoidBottomInset: false,
       body: GestureDetector(
         onLongPressStart: (_) => _pauseTimer(),
         onLongPressEnd: (_) => _resumeTimer(),
@@ -172,13 +233,19 @@ class _StatusViewerScreenState extends State<StatusViewerScreen> {
                   Expanded(
                     child: GestureDetector(
                       behavior: HitTestBehavior.translucent,
-                      onTap: _previousStatus,
+                      onTap: () {
+                        if (_dismissReplyIfOpen()) return;
+                        _previousStatus();
+                      },
                     ),
                   ),
                   Expanded(
                     child: GestureDetector(
                       behavior: HitTestBehavior.translucent,
-                      onTap: _nextStatus,
+                      onTap: () {
+                        if (_dismissReplyIfOpen()) return;
+                        _nextStatus();
+                      },
                     ),
                   ),
                 ],
@@ -213,24 +280,68 @@ class _StatusViewerScreenState extends State<StatusViewerScreen> {
               )
             else
               Positioned(
-                bottom: 20,
                 left: 16,
                 right: 16,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 12,
-                  ),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Colors.white),
-                    borderRadius: BorderRadius.circular(25),
-                  ),
-                  child: const Text(
-                    'Reply...',
-                    style: TextStyle(color: Colors.white70),
+                // Lift the reply bar above the keyboard. With
+                // resizeToAvoidBottomInset:false this is the only thing that
+                // moves when the keyboard animates — the story behind stays put.
+                bottom: MediaQuery.of(context).viewInsets.bottom + 12,
+                child: _buildReplyBar(),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildReplyBar() {
+    return SafeArea(
+      top: false,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.35),
+          borderRadius: BorderRadius.circular(28),
+          border: Border.all(color: Colors.white70),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _replyController,
+                focusNode: _replyFocusNode,
+                minLines: 1,
+                maxLines: 4,
+                textCapitalization: TextCapitalization.sentences,
+                textInputAction: TextInputAction.send,
+                cursorColor: Colors.white,
+                style: const TextStyle(color: Colors.white),
+                onSubmitted: (_) => _sendReply(),
+                decoration: const InputDecoration(
+                  hintText: 'Reply...',
+                  hintStyle: TextStyle(color: Colors.white70),
+                  border: InputBorder.none,
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
                   ),
                 ),
               ),
+            ),
+            IconButton(
+              icon: _sendingReply
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation(Colors.white),
+                      ),
+                    )
+                  : const Icon(Icons.send, color: Colors.white),
+              onPressed: _sendingReply ? null : _sendReply,
+            ),
           ],
         ),
       ),
