@@ -166,6 +166,7 @@ class CallCircleButton extends StatelessWidget {
     this.iconColor,
     this.tooltip,
     this.label,
+    this.labelColor,
     this.size = 58,
   });
 
@@ -175,6 +176,7 @@ class CallCircleButton extends StatelessWidget {
   final Color? iconColor;
   final String? tooltip;
   final String? label;
+  final Color? labelColor;
   final double size;
 
   @override
@@ -207,7 +209,7 @@ class CallCircleButton extends StatelessWidget {
           label!,
           style: Theme.of(
             context,
-          ).textTheme.bodySmall?.copyWith(color: Colors.grey[700]),
+          ).textTheme.bodySmall?.copyWith(color: labelColor ?? Colors.grey[700]),
         ),
       ],
     );
@@ -256,11 +258,13 @@ class CallStatusText extends StatelessWidget {
     required this.text,
     this.isError = false,
     this.textAlign = TextAlign.center,
+    this.color,
   });
 
   final String text;
   final bool isError;
   final TextAlign textAlign;
+  final Color? color;
 
   @override
   Widget build(BuildContext context) {
@@ -268,7 +272,7 @@ class CallStatusText extends StatelessWidget {
       text,
       textAlign: textAlign,
       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-        color: isError ? Colors.red : Colors.grey[700],
+        color: isError ? Colors.red : (color ?? Colors.grey[700]),
         fontWeight: FontWeight.w500,
       ),
     );

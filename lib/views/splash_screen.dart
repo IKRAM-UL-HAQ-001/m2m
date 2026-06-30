@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../viewmodels/auth_viewmodel.dart';
+import '../viewmodels/call_viewmodel.dart';
 import 'welcome_screen.dart';
 import 'responsive_layout.dart';
 import 'home_screen.dart';
@@ -18,6 +19,10 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen> {
   bool _didNavigate = false;
+  bool _postStartupTasksQueued = false;
+  CallViewModel? _deferredCallViewModel;
+  Widget? _deferredPage;
+  String? _deferredDecision;
 
   @override
   void initState() {
@@ -33,22 +38,62 @@ class _SplashScreenState extends State<SplashScreen> {
     await authProvider.checkAuthStatus();
     if (!mounted || _didNavigate) return;
 
-    _didNavigate = true;
     if (authProvider.isAuthenticated) {
-      debugPrint('[startup] splash route decision=home');
-      _replaceWith(
-        const ResponsiveLayout(
-          mobileLayout: HomeScreen(),
-          webLayout: WebScreenLayout(),
-        ),
+      final home = const ResponsiveLayout(
+        mobileLayout: HomeScreen(),
+        webLayout: WebScreenLayout(),
       );
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        unawaited(authProvider.runPostStartupTasks());
-      });
+      _queuePostStartupTasks(authProvider);
+      _navigateWhenCallAllows(home, decision: 'home');
     } else {
-      debugPrint('[startup] splash route decision=welcome');
-      _replaceWith(const WelcomeScreen());
+      _navigateWhenCallAllows(const WelcomeScreen(), decision: 'welcome');
     }
+  }
+
+  void _queuePostStartupTasks(AuthViewModel authProvider) {
+    if (_postStartupTasksQueued) return;
+    _postStartupTasksQueued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(authProvider.runPostStartupTasks());
+    });
+  }
+
+  void _navigateWhenCallAllows(Widget page, {required String decision}) {
+    final callViewModel = context.read<CallViewModel>();
+    if (callViewModel.hasActiveSession) {
+      debugPrint('[startup] splash route decision=$decision deferred=call');
+      _deferredPage = page;
+      _deferredDecision = decision;
+      _deferredCallViewModel ??= callViewModel
+        ..addListener(_handleDeferredNavigation);
+      return;
+    }
+
+    _navigateNow(page, decision: decision);
+  }
+
+  void _handleDeferredNavigation() {
+    if (!mounted || _didNavigate || _deferredPage == null) return;
+    final callViewModel = _deferredCallViewModel;
+    if (callViewModel != null && callViewModel.hasActiveSession) return;
+
+    final page = _deferredPage!;
+    final decision = _deferredDecision ?? 'home';
+    _deferredPage = null;
+    _deferredDecision = null;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_didNavigate) {
+        _navigateNow(page, decision: decision);
+      }
+    });
+  }
+
+  void _navigateNow(Widget page, {required String decision}) {
+    if (_didNavigate) return;
+    _didNavigate = true;
+    debugPrint('[startup] splash route decision=$decision');
+    _replaceWith(page);
   }
 
   void _replaceWith(Widget page) {
@@ -59,6 +104,12 @@ class _SplashScreenState extends State<SplashScreen> {
         reverseTransitionDuration: Duration.zero,
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    _deferredCallViewModel?.removeListener(_handleDeferredNavigation);
+    super.dispose();
   }
 
   @override

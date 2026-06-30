@@ -19,6 +19,7 @@ class MessageList extends StatelessWidget {
     required this.downloadedUrls,
     required this.onLongPressMessage,
     required this.onReplyTap,
+    this.onOpenStatusReply,
     required this.onOpenMediaPreview,
     required this.onOpenAlbum,
     required this.onDownloadImage,
@@ -38,6 +39,7 @@ class MessageList extends StatelessWidget {
   final Set<String> downloadedUrls;
   final ValueChanged<Message> onLongPressMessage;
   final ValueChanged<String?> onReplyTap;
+  final ValueChanged<StatusReply>? onOpenStatusReply;
   final ValueChanged<Message> onOpenMediaPreview;
   final void Function(List<Message> album, int index) onOpenAlbum;
   final ValueChanged<String> onDownloadImage;
@@ -150,6 +152,7 @@ class MessageList extends StatelessWidget {
       downloadedUrls: downloadedUrls,
       onLongPress: onLongPressMessage,
       onReplyTap: onReplyTap,
+      onOpenStatusReply: onOpenStatusReply,
       onOpenMediaPreview: onOpenMediaPreview,
       onDownloadImage: onDownloadImage,
       onOpenFile: onOpenFile,

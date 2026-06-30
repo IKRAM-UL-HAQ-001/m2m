@@ -25,6 +25,8 @@ import 'views/splash_screen.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'services/notification_service.dart';
+import 'services/callkit_service.dart';
+import 'services/permission_service.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
@@ -91,6 +93,9 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   AppLifecycleState _lifecycleState = AppLifecycleState.resumed;
   String? _presentedIncomingCallId;
   String? _activeCallRouteCallId;
+  String? _lastRecoveredCallkitCallId;
+  bool _callPermissionSetupStarted = false;
+  CallViewModel? _permissionDeferredCallViewModel;
   late final _AppRouteObserver _routeObserver;
   String? _currentRouteName;
 
@@ -109,6 +114,69 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     _incomingCallNotificationSubscription = NotificationService()
         .incomingCallTapStream
         .listen(_handleIncomingCallNotification);
+    // Android: the native CallKit-style incoming screen drives accept/decline.
+    // Set the listener up as early as possible so an accept that cold-launched
+    // the app is delivered. (No-op on iOS.)
+    CallkitService.listen(
+      onAccept: _handleCallkitAccept,
+      onDecline: _handleCallkitDecline,
+      onEnded: (callId) => unawaited(CallkitService.end(callId)),
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_recoverAcceptedCallkitCall());
+    });
+  }
+
+  Future<void> _handleCallkitAccept(Map<String, dynamic> extra) async {
+    final callId = extra['call_id']?.toString();
+    if (callId == null || callId.isEmpty || !mounted) return;
+    final viewModel = context.read<CallViewModel>();
+    // Native Android accept is latency-sensitive: the caller must move from
+    // ringing to accepted immediately. Rebuild from the push/CallKit payload
+    // first so backend accept can start without waiting for a detail fetch
+    // during cold app start. If the payload is somehow incomplete, fall back to
+    // the slower server restore.
+    final ready =
+        viewModel.setIncomingCallFromPushPayload(extra) ||
+        await viewModel.setIncomingCallFromPush(extra);
+    if (!ready || !mounted) {
+      // Couldn't restore (already ended, etc.) — make sure the native UI clears.
+      unawaited(CallkitService.end(callId));
+      return;
+    }
+    viewModel.acceptCallFast(int.tryParse(callId));
+    viewModel.markActiveCallScreenPushed();
+    unawaited(_openActiveCallScreen(replace: false));
+    // We've taken over with our own in-call screen + foreground service, so
+    // clear CallKit's call state/notification — it was only the ringing handler.
+    unawaited(CallkitService.end(callId));
+  }
+
+  Future<void> _recoverAcceptedCallkitCall() async {
+    if (!mounted || !CallkitService.isSupported) return;
+    final extra = await CallkitService.acceptedActiveCallExtra();
+    if (extra == null || !mounted) return;
+    final callId = extra['call_id']?.toString();
+    if (callId == null || callId.isEmpty) return;
+
+    final viewModel = context.read<CallViewModel>();
+    final alreadyHandlingSameCall =
+        viewModel.currentCall?.id == callId &&
+        (viewModel.isInCall || viewModel.isConnecting);
+    if (alreadyHandlingSameCall || _lastRecoveredCallkitCallId == callId) {
+      return;
+    }
+
+    _lastRecoveredCallkitCallId = callId;
+    debugPrint('Recovering accepted CallKit call callId=$callId');
+    await _handleCallkitAccept(extra);
+  }
+
+  Future<void> _handleCallkitDecline(String? callId) async {
+    unawaited(CallkitService.end(callId));
+    if (callId == null || callId.isEmpty) return;
+    final viewModel = context.read<CallViewModel>();
+    await viewModel.rejectCall(int.tryParse(callId));
   }
 
   Future<void> _initializeAfterFirstFrame() async {
@@ -127,12 +195,35 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     debugPrint('[startup] notification init started');
     await NotificationService().initialize(navKey: widget.navigatorKey);
     debugPrint('[startup] notification init completed');
+
+    _requestCallPermissionsWhenIdle();
+  }
+
+  void _requestCallPermissionsWhenIdle() {
+    if (!mounted || _callPermissionSetupStarted) return;
+    final callViewModel = context.read<CallViewModel>();
+    if (callViewModel.hasActiveSession) {
+      _permissionDeferredCallViewModel ??= callViewModel
+        ..addListener(_requestCallPermissionsWhenIdle);
+      return;
+    }
+
+    _permissionDeferredCallViewModel?.removeListener(
+      _requestCallPermissionsWhenIdle,
+    );
+    _permissionDeferredCallViewModel = null;
+    _callPermissionSetupStarted = true;
+    unawaited(PermissionService.requestCallPermissions());
   }
 
   @override
   void dispose() {
     _callEventSubscription?.cancel();
     _incomingCallNotificationSubscription?.cancel();
+    _permissionDeferredCallViewModel?.removeListener(
+      _requestCallPermissionsWhenIdle,
+    );
+    CallkitService.disposeListener();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -147,8 +238,33 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       'socket=${SocketService().connectionState.name}',
     );
     if (state == AppLifecycleState.resumed) {
-      unawaited(callViewModel.handleAppResumed());
+      unawaited(_recoverAcceptedCallkitCall());
+      unawaited(
+        callViewModel.handleAppResumed().whenComplete(
+          _presentIncomingIfPending,
+        ),
+      );
+      // Also check immediately: when the OS fires the incoming-call full-screen
+      // intent while the app is merely backgrounded (screen locked/off), it
+      // brings this activity to the foreground WITHOUT a notification tap, so no
+      // tap callback runs to route us. If the live WebSocket already delivered
+      // the invite, currentCall is incoming right now and we can present at once;
+      // handleAppResumed's completion re-checks for the push-only/dropped-socket
+      // case where the call still has to be fetched from the backend.
+      _presentIncomingIfPending();
     }
+  }
+
+  void _presentIncomingIfPending() {
+    if (!mounted) return;
+    // Android shows the native CallKit screen, not the in-app Flutter one.
+    if (CallkitService.isSupported) return;
+    final viewModel = context.read<CallViewModel>();
+    final call = viewModel.currentCall;
+    if (call == null || !viewModel.isIncoming) return;
+    if (_presentedIncomingCallId == call.id) return;
+    if (_isActiveCallRoute(_currentRouteName)) return;
+    unawaited(_presentIncomingCall(call.id));
   }
 
   void _handleCallEvent(CallEvent event) {
@@ -156,20 +272,49 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     viewModel.handleCallEvent(event);
 
     if (event.type != 'call_invite') {
-      if (_presentedIncomingCallId == event.call.id.toString() &&
-          _isTerminalCallEvent(event)) {
-        NotificationService().dismissIncomingCall(event.call.id);
-        _presentedIncomingCallId = null;
+      if (_isTerminalCallEvent(event)) {
+        // Caller cancelled / call ended — tear down whichever incoming UI is up.
+        unawaited(CallkitService.end(event.call.id.toString()));
+        if (_presentedIncomingCallId == event.call.id.toString()) {
+          NotificationService().dismissIncomingCall(event.call.id);
+          _presentedIncomingCallId = null;
+        }
       }
       return;
     }
 
-    if (_lifecycleState != AppLifecycleState.resumed) return;
-    if (!viewModel.isIncoming || viewModel.currentCall?.id != event.call.id) {
+    // FOREGROUND → present the in-app Flutter screen directly. This is the
+    // reliable, OEM-independent path that "just worked" before: no native
+    // CallKit activity (which MIUI/others can block), instant accept, and it
+    // brings back the front-camera self-preview. CallKit is reserved for the
+    // background/terminated case where we genuinely need to surface over the
+    // lock screen / other apps.
+    if (_lifecycleState == AppLifecycleState.resumed) {
+      if (!viewModel.isIncoming || viewModel.currentCall?.id != event.call.id) {
+        return;
+      }
+      _presentIncomingCall(event.call.id.toString());
       return;
     }
 
-    _presentIncomingCall(event.call.id.toString());
+    // Backgrounded but still alive: surface via CallKit (Android). Terminated
+    // calls arrive through the FCM background handler, which also uses CallKit.
+    if (CallkitService.isSupported) {
+      unawaited(
+        CallkitService.showIncoming(_callkitDataFromSession(event.call)),
+      );
+    }
+  }
+
+  Map<String, dynamic> _callkitDataFromSession(CallSession call) {
+    return <String, dynamic>{
+      'call_id': call.id,
+      'caller_name': call.caller.name,
+      'call_type': call.callType.value,
+      'caller_id': call.caller.id,
+      'caller_profile_picture': call.caller.avatarUrl ?? '',
+      'room_name': call.roomName,
+    };
   }
 
   Future<void> _handleIncomingCallNotification(

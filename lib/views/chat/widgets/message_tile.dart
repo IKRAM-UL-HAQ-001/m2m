@@ -20,6 +20,7 @@ class MessageTile extends StatelessWidget {
     required this.downloadedUrls,
     required this.onLongPress,
     required this.onReplyTap,
+    this.onOpenStatusReply,
     required this.onOpenMediaPreview,
     required this.onDownloadImage,
     required this.onOpenFile,
@@ -34,6 +35,7 @@ class MessageTile extends StatelessWidget {
   final Set<String> downloadedUrls;
   final ValueChanged<Message> onLongPress;
   final ValueChanged<String?> onReplyTap;
+  final ValueChanged<StatusReply>? onOpenStatusReply;
   final ValueChanged<Message> onOpenMediaPreview;
   final ValueChanged<String> onDownloadImage;
   final ValueChanged<String> onOpenFile;
@@ -142,6 +144,8 @@ class MessageTile extends StatelessWidget {
                       fontSize: 14,
                     ),
                   ),
+                if (!isDeleted && message.statusReply != null)
+                  _buildStatusReplyCard(context, message.statusReply!, isMe),
                 if (!isDeleted && message.replyToId != null)
                   _buildReplyQuote(message, isMe),
                 if (!isDeleted && message.isForwarded) _buildForwardedLabel(),
@@ -167,6 +171,159 @@ class MessageTile extends StatelessWidget {
         ),
       ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Preview card shown above a status-reply message so the recipient can see
+  // which status the reply belongs to. Renders from the snapshot stored on the
+  // message, so it works for both sender and receiver and survives the original
+  // status expiring. Tapping tries to open the status (handled by the parent).
+  Widget _buildStatusReplyCard(
+    BuildContext context,
+    StatusReply reply,
+    bool isMe,
+  ) {
+    final isText = reply.mediaType == 'text';
+    final isVideo = reply.mediaType == 'video';
+    final summary = isText
+        ? ((reply.caption ?? '').trim().isEmpty
+              ? 'Text status'
+              : reply.caption!.trim())
+        : isVideo
+        ? 'Video'
+        : 'Photo';
+
+    return InkWell(
+      onTap: onOpenStatusReply == null
+          ? null
+          : () => onOpenStatusReply!(reply),
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.all(6),
+        decoration: BoxDecoration(
+          color: isMe
+              ? Colors.white.withValues(alpha: 0.45)
+              : Colors.grey.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(8),
+          border: const Border(
+            left: BorderSide(color: AppColors.primaryColor, width: 3),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.amp_stories,
+                        size: 13,
+                        color: AppColors.primaryColor,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Replied to status',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.primaryColor,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    summary,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey[700],
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            _buildStatusThumb(reply, isText: isText, isVideo: isVideo),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatusThumb(
+    StatusReply reply, {
+    required bool isText,
+    required bool isVideo,
+  }) {
+    const double w = 38, h = 50;
+    final thumbUrl = (reply.thumbnailUrl?.isNotEmpty ?? false)
+        ? reply.thumbnailUrl
+        : reply.mediaUrl;
+
+    Widget inner;
+    if (isText || thumbUrl == null || thumbUrl.isEmpty) {
+      final preview = (reply.caption ?? '').trim();
+      inner = Container(
+        color: AppColors.primaryColor.withValues(alpha: 0.15),
+        alignment: Alignment.center,
+        padding: const EdgeInsets.all(2),
+        child: Text(
+          preview.isEmpty ? 'Aa' : preview,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            fontSize: 8,
+            fontWeight: FontWeight.w600,
+            color: AppColors.primaryColor,
+          ),
+        ),
+      );
+    } else {
+      inner = CachedNetworkImage(
+        imageUrl: ApiService.mediaUrl(thumbUrl),
+        fit: BoxFit.cover,
+        width: w,
+        height: h,
+        memCacheWidth: 88,
+        placeholder: (context, url) =>
+            Container(color: Colors.grey.withValues(alpha: 0.2)),
+        errorWidget: (context, url, error) => Container(
+          color: Colors.grey.withValues(alpha: 0.2),
+          child: const Icon(Icons.broken_image, size: 16, color: Colors.grey),
+        ),
+      );
+    }
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(6),
+      child: SizedBox(
+        width: w,
+        height: h,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            inner,
+            if (isVideo)
+              const Center(
+                child: Icon(
+                  Icons.play_circle_fill,
+                  color: Colors.white,
+                  size: 18,
+                ),
+              ),
           ],
         ),
       ),
@@ -389,6 +546,21 @@ class MessageTile extends StatelessWidget {
         ? message.thumbnailUrl
         : message.fileUrl;
     final imageUrl = ApiService.mediaUrl(previewUrl);
+
+    final ImageProvider provider = hasLocalFile
+        ? FileImage(File(localPath))
+        : CachedNetworkImageProvider(imageUrl);
+    // Use the real pixel dimensions the backend sends so the bubble matches the
+    // image's aspect ratio — no stretching, no cropping. Falls back to reading
+    // the decoded image's own size when dimensions aren't recorded.
+    final double? knownAspect =
+        (message.width != null &&
+            message.height != null &&
+            message.width! > 0 &&
+            message.height! > 0)
+        ? message.width! / message.height!
+        : null;
+
     return GestureDetector(
       onTap: () => onOpenMediaPreview(message),
       child: Stack(
@@ -397,35 +569,11 @@ class MessageTile extends StatelessWidget {
             borderRadius: BorderRadius.circular(8),
             child: Hero(
               tag: 'media-${message.id}',
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(
-                  minWidth: 180,
-                  maxWidth: 260,
-                  minHeight: 140,
-                  maxHeight: 320,
-                ),
-                child: hasLocalFile
-                    ? Image.file(
-                        File(localPath),
-                        cacheWidth: 520,
-                        cacheHeight: 640,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) =>
-                            const Icon(Icons.broken_image, size: 48),
-                      )
-                    : CachedNetworkImage(
-                        imageUrl: imageUrl,
-                        memCacheWidth: 520,
-                        memCacheHeight: 640,
-                        fit: BoxFit.cover,
-                        placeholder: (context, url) => Container(
-                          width: 220,
-                          height: 180,
-                          color: Colors.black12,
-                        ),
-                        errorWidget: (context, url, error) =>
-                            const Icon(Icons.broken_image, size: 48),
-                      ),
+              child: _ChatImage(
+                provider: provider,
+                knownAspect: knownAspect,
+                maxWidth: 260,
+                maxHeight: 320,
               ),
             ),
           ),
@@ -830,6 +978,108 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Renders a chat image at its true aspect ratio, scaled to fit within
+/// [maxWidth]/[maxHeight]. The bubble's box always matches the image's shape, so
+/// the image is never stretched or cropped — large images shrink uniformly to
+/// fit (tap to open the full zoomable preview), small ones keep their shape.
+///
+/// The aspect ratio is taken from the backend-provided pixel dimensions when
+/// available ([knownAspect]); otherwise it is read from the decoded image the
+/// first time it loads. Until then a neutral 4:3 placeholder box is shown so the
+/// layout doesn't jump noticeably.
+class _ChatImage extends StatefulWidget {
+  const _ChatImage({
+    required this.provider,
+    required this.knownAspect,
+    required this.maxWidth,
+    required this.maxHeight,
+  });
+
+  final ImageProvider provider;
+  final double? knownAspect;
+  final double maxWidth;
+  final double maxHeight;
+
+  @override
+  State<_ChatImage> createState() => _ChatImageState();
+}
+
+class _ChatImageState extends State<_ChatImage> {
+  double? _aspect;
+  ImageStream? _stream;
+  ImageStreamListener? _listener;
+  // Cap decode resolution (~2x the max logical width) so a multi-megapixel photo
+  // doesn't decode at full size into memory — matches the old memCacheWidth.
+  late final ImageProvider _display = ResizeImage.resizeIfNeeded(
+    520,
+    null,
+    widget.provider,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _aspect = widget.knownAspect;
+    if (_aspect == null) _resolveAspect();
+  }
+
+  void _resolveAspect() {
+    final stream = _display.resolve(ImageConfiguration.empty);
+    final listener = ImageStreamListener(
+      (ImageInfo info, bool _) {
+        final w = info.image.width;
+        final h = info.image.height;
+        if (mounted && w > 0 && h > 0) {
+          setState(() => _aspect = w / h);
+        }
+      },
+      onError: (error, stack) {/* keep the placeholder ratio */},
+    );
+    _stream = stream..addListener(listener);
+    _listener = listener;
+  }
+
+  @override
+  void dispose() {
+    if (_listener != null) _stream?.removeListener(_listener!);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final aspect = _aspect ?? (4 / 3);
+    // Largest box with this aspect ratio that fits the bubble bounds. Prefer the
+    // full available width, then cap by height for tall/portrait images.
+    double w = widget.maxWidth;
+    double h = w / aspect;
+    if (h > widget.maxHeight) {
+      h = widget.maxHeight;
+      w = h * aspect;
+    }
+
+    return SizedBox(
+      width: w,
+      height: h,
+      child: Image(
+        image: _display,
+        // The box matches the image's aspect ratio, so cover fills it exactly
+        // without cropping or distortion.
+        fit: BoxFit.cover,
+        gaplessPlayback: true,
+        frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+          if (wasSynchronouslyLoaded || frame != null) return child;
+          return Container(color: Colors.black12);
+        },
+        errorBuilder: (context, error, stackTrace) => Container(
+          color: Colors.black12,
+          alignment: Alignment.center,
+          child: const Icon(Icons.broken_image, size: 48, color: Colors.grey),
+        ),
       ),
     );
   }

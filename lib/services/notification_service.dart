@@ -12,6 +12,7 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api_service.dart';
+import 'callkit_service.dart';
 
 class IncomingCallNotificationTap {
   final Map<String, dynamic> data;
@@ -199,15 +200,12 @@ class NotificationService {
 
   Future<void> handleForegroundRemoteMessage(RemoteMessage message) async {
     if (_isIncomingCallPayload(message.data)) {
-      // App is in the foreground: present the in-app incoming-call UI and play
-      // exactly one looping ringtone via the native channel. Posting the
-      // full-screen call notification here would double the ringtone (native
-      // ringtone + the notification channel's own sound) and overlay a
-      // redundant system alert on top of the call screen — the source of the
-      // ringing lag. The full-screen notification is only needed when the app
-      // is backgrounded or terminated (handled by [showRemoteMessageNotification]).
-      // The ringtone is owned by IncomingCallScreen's lifecycle so it rings
-      // regardless of whether the invite arrived via WebSocket or FCM.
+      // App is in the FOREGROUND: present the in-app incoming-call screen
+      // directly (this is the reliable, OEM-independent path — it does NOT touch
+      // the native CallKit activity, which some OEMs like MIUI gate behind
+      // background-launch restrictions). CallKit is only used when the app is
+      // backgrounded/terminated (see showRemoteMessageNotification). The screen
+      // owns a single ringtone; de-duped against the WebSocket invite by call id.
       _incomingCallTapController.add(
         IncomingCallNotificationTap(data: message.data),
       );
@@ -324,7 +322,22 @@ class NotificationService {
 
     if (_isIncomingCallPayload(data)) {
       _logPushTiming('remote incoming call notification handling', data);
-      await showIncomingCallNotification(data);
+      // Android: the native CallKit-style screen handles ringtone + full-screen
+      // launch from the terminated/background state (no Flutter UI boot, single
+      // ringtone). iOS keeps the full-screen-intent notification path.
+      if (CallkitService.isSupported) {
+        // The push reached this device — ack ringing over HTTP so the caller
+        // sees "Ringing..." even if the app is never opened (mirrors the old
+        // showIncomingCallNotification behaviour; markCallRinging loads the auth
+        // token itself and is idempotent).
+        final callId = data['call_id']?.toString();
+        if (callId != null && callId.isNotEmpty) {
+          unawaited(ApiService().markCallRinging(int.tryParse(callId) ?? 0));
+        }
+        await CallkitService.showIncoming(Map<String, dynamic>.from(data));
+      } else {
+        await showIncomingCallNotification(data);
+      }
       return;
     }
 

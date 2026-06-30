@@ -36,6 +36,59 @@ class DeliveryState {
   static const failed = MessageStatus.failed;
 }
 
+/// Snapshot of the status/story a message is replying to. Self-contained so the
+/// chat preview still renders after the original status expires or is deleted.
+class StatusReply {
+  final String statusId;
+  final String statusOwnerId;
+  final String? mediaUrl;
+  final String? thumbnailUrl;
+  final String mediaType; // 'image' | 'video' | 'text'
+  final String? caption;
+
+  const StatusReply({
+    required this.statusId,
+    required this.statusOwnerId,
+    this.mediaUrl,
+    this.thumbnailUrl,
+    this.mediaType = 'image',
+    this.caption,
+  });
+
+  factory StatusReply.fromJson(Map<String, dynamic> json) {
+    String? str(dynamic v) {
+      final s = v?.toString();
+      return (s == null || s.isEmpty) ? null : s;
+    }
+
+    return StatusReply(
+      statusId: (json['statusId'] ?? json['status_id'] ?? '').toString(),
+      statusOwnerId:
+          (json['statusOwnerId'] ?? json['status_owner_id'] ?? '').toString(),
+      mediaUrl: UrlHelper.fixUrl(json['mediaUrl'] ?? json['media_url']).isEmpty
+          ? null
+          : UrlHelper.fixUrl(json['mediaUrl'] ?? json['media_url']),
+      thumbnailUrl:
+          UrlHelper.fixUrl(json['thumbnailUrl'] ?? json['thumbnail_url']).isEmpty
+          ? null
+          : UrlHelper.fixUrl(json['thumbnailUrl'] ?? json['thumbnail_url']),
+      mediaType: (json['mediaType'] ?? json['media_type'] ?? 'image')
+          .toString(),
+      caption: str(json['caption'] ?? json['text']),
+    );
+  }
+
+  /// JSON sent to the backend (snake_case to match other API payloads).
+  Map<String, dynamic> toJson() => {
+    'status_id': statusId,
+    'status_owner_id': statusOwnerId,
+    if (mediaUrl != null) 'media_url': mediaUrl,
+    if (thumbnailUrl != null) 'thumbnail_url': thumbnailUrl,
+    'media_type': mediaType,
+    if (caption != null) 'caption': caption,
+  };
+}
+
 class Message {
   final String id;
   final String clientUuid;
@@ -68,6 +121,7 @@ class Message {
   final int? height;
   final Map<String, List<String>> reactions;
   final bool isForwarded;
+  final StatusReply? statusReply;
 
   Message({
     required this.id,
@@ -101,6 +155,7 @@ class Message {
     this.height,
     this.reactions = const {},
     this.isForwarded = false,
+    this.statusReply,
   });
 
   factory Message.fromJson(Map<String, dynamic> json) {
@@ -191,7 +246,18 @@ class Message {
           normalizedJson['is_forwarded'] == true ||
           normalizedJson['isForwarded'] == true ||
           normalizedJson['forwarded_from'] != null,
+      statusReply: _parseStatusReply(
+        normalizedJson['status_reply'] ?? normalizedJson['statusReply'],
+      ),
     );
+  }
+
+  static StatusReply? _parseStatusReply(dynamic value) {
+    if (value is! Map) return null;
+    final map = Map<String, dynamic>.from(value);
+    final id = (map['statusId'] ?? map['status_id'] ?? '').toString();
+    if (id.isEmpty) return null;
+    return StatusReply.fromJson(map);
   }
 
   static MessageStatus _parseState(dynamic status) {
@@ -260,6 +326,7 @@ class Message {
     int? height,
     Map<String, List<String>>? reactions,
     bool? isForwarded,
+    StatusReply? statusReply,
   }) {
     return Message(
       id: id ?? this.id,
@@ -295,6 +362,7 @@ class Message {
       height: height ?? this.height,
       reactions: reactions ?? this.reactions,
       isForwarded: isForwarded ?? this.isForwarded,
+      statusReply: statusReply ?? this.statusReply,
     );
   }
 

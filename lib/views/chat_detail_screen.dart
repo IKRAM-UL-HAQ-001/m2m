@@ -20,6 +20,7 @@ import 'package:video_player/video_player.dart';
 
 import '../models/chat.dart';
 import '../models/message.dart';
+import '../models/user_status.dart';
 import '../services/api_service.dart';
 import '../services/database_service.dart';
 import '../services/media_storage_service.dart';
@@ -30,11 +31,13 @@ import '../utils/constants.dart';
 import '../utils/responsive.dart';
 import '../viewmodels/chat_viewmodel.dart';
 import '../viewmodels/call_viewmodel.dart';
+import '../viewmodels/status_viewmodel.dart';
 import '../widgets/forward_contact_picker_sheet.dart';
 import '../widgets/profile_quick_modal.dart';
 import 'chat/widgets/chat_input_bar.dart';
 import 'chat/widgets/media_gallery_screen.dart';
 import 'chat/widgets/message_list.dart';
+import 'status/status_viewer_screen.dart';
 import 'calls/outgoing_call_screen.dart';
 
 class ChatDetailScreen extends StatefulWidget {
@@ -1974,6 +1977,66 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   }
 
   Widget _buildChatArea() {
+    return _buildMessageListWidget();
+  }
+
+  // Tapping a status-reply preview opens the referenced status if it still
+  // exists (the owner's own status, or a contact's still-active status),
+  // otherwise tells the user it is gone.
+  Future<void> _openStatusReply(StatusReply reply) async {
+    final vm = context.read<StatusViewModel>();
+    final messenger = ScaffoldMessenger.of(context);
+    const unavailable = SnackBar(content: Text('Status no longer available'));
+    try {
+      await vm.loadStatuses(isSilent: true);
+      final isMine = reply.statusOwnerId == ApiService.currentUserId;
+
+      StatusGroup? group;
+      if (isMine) {
+        group = await vm.myStatusGroup();
+      } else {
+        for (final g in [...vm.unseenGroups, ...vm.seenGroups]) {
+          if (g.owner.id == reply.statusOwnerId) {
+            group = g;
+            break;
+          }
+        }
+      }
+
+      UserStatus? status;
+      for (final s in group?.statuses ?? const <UserStatus>[]) {
+        if (s.id == reply.statusId) {
+          status = s;
+          break;
+        }
+      }
+
+      if (group == null || status == null) {
+        messenger.showSnackBar(unavailable);
+        return;
+      }
+      if (!mounted) return;
+
+      // Open just the replied-to status so it's unambiguous which one it was.
+      final singleGroup = StatusGroup(
+        owner: group.owner,
+        statuses: [status],
+        unviewedCount: 0,
+        latestStatusTime: status.createdAt,
+        isMine: isMine,
+      );
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => StatusViewerScreen(statusGroup: singleGroup),
+        ),
+      );
+    } catch (_) {
+      messenger.showSnackBar(unavailable);
+    }
+  }
+
+  Widget _buildMessageListWidget() {
     return MessageList(
       messages: _messages,
       isLoading: _isLoading,
@@ -1984,6 +2047,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       downloadedUrls: _downloadedUrls,
       onLongPressMessage: _onMessageLongPress,
       onReplyTap: _scrollToMessage,
+      onOpenStatusReply: _isSelectionMode ? null : _openStatusReply,
       onOpenMediaPreview: _isSelectionMode ? (_) {} : _openMediaPreview,
       onOpenAlbum: _isSelectionMode ? (_, _) {} : _openMediaGallery,
       onDownloadImage: _downloadAndSaveImage,

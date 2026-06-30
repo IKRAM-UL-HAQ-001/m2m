@@ -156,42 +156,107 @@ class ChatsListView extends StatelessWidget {
     );
   }
 
+  // Custom Row layout (replaces ListTile). ListTile constrains the height it
+  // gives its subtitle, so on devices with a large system font / display size
+  // the last-message line could get clipped to nothing — that was the "last
+  // message missing on some phones" bug. A plain Row + Expanded middle Column
+  // (mainAxisSize.min, no fixed heights) always lays the message line out.
   Widget _buildChatTile(
     BuildContext context,
     Chat chat, {
     String highlightQuery = '',
   }) {
-    return GestureDetector(
+    return InkWell(
+      onTap: () => _openChat(context, chat),
       onLongPress: () => _showChatOptions(context, chat),
-      child: ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      leading: Stack(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            _buildAvatar(context, chat),
+            const SizedBox(width: 12),
+            // Middle column takes all remaining width (never zero), so name and
+            // last message can never be squeezed out by the avatar/time/badge.
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: buildHighlightedText(
+                          chat.name,
+                          highlightQuery,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 16,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      // Time sizes to its content; the Expanded name absorbs the
+                      // rest, so the time never steals the whole row.
+                      Text(
+                        _formatTime(chat.time),
+                        style: TextStyle(
+                          color: chat.unreadCount > 0
+                              ? const Color(0xFF25D366)
+                              : Colors.grey[500],
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 3),
+                  Row(
+                    children: [
+                      Expanded(child: _buildLastMessage(chat)),
+                      if (chat.unreadCount > 0) ...[
+                        const SizedBox(width: 6),
+                        _buildUnreadBadge(chat.unreadCount),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAvatar(BuildContext context, Chat chat) {
+    return GestureDetector(
+      onTap: () => ProfileQuickModal.show(
+        context,
+        userId: chat.receiverId,
+        name: chat.name,
+        phone: chat.phone,
+        about: chat.about,
+        avatarUrl: chat.avatarUrl,
+        isOnline: chat.isOnline,
+        onMessage: () => _openChat(context, chat),
+      ),
+      child: Stack(
         children: [
-          GestureDetector(
-            onTap: () => ProfileQuickModal.show(
-              context,
-              userId: chat.receiverId,
-              name: chat.name,
-              phone: chat.phone,
-              about: chat.about,
-              avatarUrl: chat.avatarUrl,
-              isOnline: chat.isOnline,
-              onMessage: () => _openChat(context, chat),
-            ),
-            child: CircleAvatar(
-              radius: 26,
-              backgroundColor: Colors.grey[300],
-              backgroundImage: chat.avatarUrl.isNotEmpty
-                  ? CachedNetworkImageProvider(
-                      ApiService.mediaUrl(chat.avatarUrl),
-                      maxWidth: 104,
-                      maxHeight: 104,
-                    )
-                  : null,
-              child: chat.avatarUrl.isEmpty
-                  ? Icon(Icons.person, color: Colors.grey[600])
-                  : null,
-            ),
+          CircleAvatar(
+            radius: 26,
+            backgroundColor: Colors.grey[300],
+            backgroundImage: chat.avatarUrl.isNotEmpty
+                ? CachedNetworkImageProvider(
+                    ApiService.mediaUrl(chat.avatarUrl),
+                    maxWidth: 104,
+                    maxHeight: 104,
+                  )
+                : null,
+            child: chat.avatarUrl.isEmpty
+                ? Icon(Icons.person, color: Colors.grey[600])
+                : null,
           ),
           if (chat.isOnline)
             Positioned(
@@ -209,60 +274,26 @@ class ChatsListView extends StatelessWidget {
             ),
         ],
       ),
-      title: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Expanded(
-            child: buildHighlightedText(
-              chat.name,
-              highlightQuery,
-              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          const SizedBox(width: 4),
-          Text(
-            _formatTime(chat.time),
-            style: TextStyle(
-              color: chat.unreadCount > 0
-                  ? const Color(0xFF25D366)
-                  : Colors.grey[500],
-              fontSize: 12,
-            ),
-          ),
-        ],
+    );
+  }
+
+  Widget _buildUnreadBadge(int count) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      constraints: const BoxConstraints(minWidth: 20, minHeight: 20),
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: const Color(0xFF25D366),
+        borderRadius: BorderRadius.circular(11),
       ),
-      subtitle: Padding(
-        padding: const EdgeInsets.only(top: 2),
-        child: Row(
-          children: [
-            Expanded(child: _buildLastMessage(chat)),
-            if (chat.unreadCount > 0) ...[
-              const SizedBox(width: 6),
-              Container(
-                padding: const EdgeInsets.all(5),
-                decoration: const BoxDecoration(
-                  color: Color(0xFF25D366),
-                  shape: BoxShape.circle,
-                ),
-                child: Text(
-                  chat.unreadCount > 99 ? '99+' : chat.unreadCount.toString(),
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ],
-          ],
+      child: Text(
+        count > 99 ? '99+' : count.toString(),
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 11,
+          fontWeight: FontWeight.bold,
         ),
       ),
-      onTap: () async {
-        await _openChat(context, chat);
-      },
-    ),
     );
   }
 
@@ -283,50 +314,63 @@ class ChatsListView extends StatelessWidget {
   Widget _buildLastMessage(Chat chat) {
     switch (chat.lastMessageType) {
       case 'image':
-        return Row(
-          children: const [
-            Icon(Icons.photo, size: 15, color: Colors.grey),
-            SizedBox(width: 4),
-            Text('Photo', style: TextStyle(color: Colors.grey, fontSize: 14)),
-          ],
-        );
+        return _mediaLastMessage(Icons.photo, 'Photo', Colors.grey);
       case 'video':
-        return Row(
-          children: const [
-            Icon(Icons.videocam, size: 15, color: Colors.grey),
-            SizedBox(width: 4),
-            Text('Video', style: TextStyle(color: Colors.grey, fontSize: 14)),
-          ],
-        );
+        return _mediaLastMessage(Icons.videocam, 'Video', Colors.grey);
       case 'audio':
-        return Row(
-          children: const [
-            Icon(Icons.mic, size: 15, color: Color(0xFF25D366)),
-            SizedBox(width: 4),
-            Text(
-              'Voice message',
-              style: TextStyle(color: Colors.grey, fontSize: 14),
-            ),
-          ],
+        return _mediaLastMessage(
+          Icons.mic,
+          'Voice message',
+          const Color(0xFF25D366),
         );
       case 'document':
-        return Row(
-          children: const [
-            Icon(Icons.insert_drive_file, size: 15, color: Colors.grey),
-            SizedBox(width: 4),
-            Text(
-              'Document',
-              style: TextStyle(color: Colors.grey, fontSize: 14),
-            ),
-          ],
+        return _mediaLastMessage(
+          Icons.insert_drive_file,
+          'Document',
+          Colors.grey,
         );
       default:
+        final text = chat.lastMessage.trim();
+        if (text.isEmpty) {
+          // Fallback so the line never collapses / looks broken when there is no
+          // message text yet.
+          return Text(
+            'No messages yet',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: Colors.grey[400],
+              fontSize: 14,
+              fontStyle: FontStyle.italic,
+            ),
+          );
+        }
         return Text(
-          chat.lastMessage.isEmpty ? '' : chat.lastMessage,
+          text,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(color: Colors.grey, fontSize: 14),
         );
     }
+  }
+
+  // Icon + label for media last-messages. The label is Flexible with ellipsis so
+  // it can never overflow the row on a narrow screen.
+  Widget _mediaLastMessage(IconData icon, String label, Color iconColor) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 15, color: iconColor),
+        const SizedBox(width: 4),
+        Flexible(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Colors.grey, fontSize: 14),
+          ),
+        ),
+      ],
+    );
   }
 }

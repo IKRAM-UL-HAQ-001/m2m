@@ -84,10 +84,24 @@ class _StatusViewerScreenState extends State<StatusViewerScreen> {
     if (text.isEmpty || _sendingReply) return;
     setState(() => _sendingReply = true);
     try {
+      final status = _currentStatus;
+      final caption = status.textContent.trim();
+      // Snapshot the status so the chat preview survives the status expiring.
+      final statusReply = <String, dynamic>{
+        'status_id': status.id,
+        'status_owner_id': widget.statusGroup.owner.id,
+        'media_type': status.statusType, // 'text' | 'image' | 'video'
+        if (status.mediaUrl != null && status.mediaUrl!.isNotEmpty)
+          'media_url': status.mediaUrl,
+        if (status.thumbnailUrl != null && status.thumbnailUrl!.isNotEmpty)
+          'thumbnail_url': status.thumbnailUrl,
+        if (caption.isNotEmpty) 'caption': caption,
+      };
       await ApiService().sendMessage(
         widget.statusGroup.owner.id,
         text,
         clientUuid: ApiService.createClientUuid(),
+        statusReply: statusReply,
       );
       _replyController.clear();
       if (!mounted) return;

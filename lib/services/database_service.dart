@@ -72,6 +72,8 @@ class MessagesTable extends Table {
   TextColumn get replyToThumbnailUrl => text().nullable()();
   TextColumn get replyToFileName => text().nullable()();
   TextColumn get reactionsJson => text().nullable()();
+  // JSON snapshot of the replied-to status/story (see Message.statusReply).
+  TextColumn get statusReplyJson => text().nullable()();
   BoolColumn get isMe => boolean().withDefault(const Constant(false))();
   BoolColumn get isEdited => boolean().withDefault(const Constant(false))();
   BoolColumn get isDeleted => boolean().withDefault(const Constant(false))();
@@ -108,7 +110,7 @@ class AppDatabase extends _$AppDatabase {
   factory AppDatabase() => _instance;
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -121,6 +123,9 @@ class AppDatabase extends _$AppDatabase {
       }
       if (from < 3) {
         await m.createTable(messageSyncStates);
+      }
+      if (from < 4) {
+        await m.addColumn(messagesTable, messagesTable.statusReplyJson);
       }
     },
   );
@@ -521,6 +526,7 @@ extension MessageEntityMapper on MessageEntity {
       height: height,
       reactions: _decodeReactions(reactionsJson),
       isForwarded: isForwarded,
+      statusReply: _decodeStatusReply(statusReplyJson),
     );
   }
 }
@@ -553,6 +559,7 @@ extension MessageMapper on Message {
       replyToThumbnailUrl: replyToThumbnailUrl,
       replyToFileName: replyToFileName,
       reactionsJson: _encodeReactions(reactions),
+      statusReplyJson: _encodeStatusReply(statusReply),
       isMe: isMe,
       isEdited: editedAt != null,
       isDeleted: isDeletedForEveryone,
@@ -584,4 +591,16 @@ Map<String, List<String>> _decodeReactions(String? encoded) {
           : <String>[],
     ),
   );
+}
+
+String? _encodeStatusReply(StatusReply? statusReply) {
+  if (statusReply == null) return null;
+  return jsonEncode(statusReply.toJson());
+}
+
+StatusReply? _decodeStatusReply(String? encoded) {
+  if (encoded == null || encoded.isEmpty) return null;
+  final decoded = jsonDecode(encoded);
+  if (decoded is! Map) return null;
+  return StatusReply.fromJson(Map<String, dynamic>.from(decoded));
 }

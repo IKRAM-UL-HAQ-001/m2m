@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import 'callkit_service.dart';
+
 class PermissionService {
   static Future<bool> requestMicrophone(BuildContext context) async {
     return _request(
@@ -83,8 +85,28 @@ class PermissionService {
       Permission.microphone,
       Permission.storage,
       Permission.photos,
+      Permission.videos,
       Permission.notification,
     ].request();
+    await requestCallUiPermissions();
+  }
+
+  /// Media/call permissions requested up front (no contacts), so audio/video
+  /// calls don't stall on a permission prompt mid-call.
+  static Future<void> requestCallPermissions() async {
+    await [
+      Permission.camera,
+      Permission.microphone,
+      Permission.storage,
+      Permission.photos,
+      Permission.videos,
+      Permission.notification,
+    ].request();
+    await requestCallUiPermissions();
+  }
+
+  static Future<void> requestCallUiPermissions() async {
+    await CallkitService.ensurePermissions();
   }
 
   static Future<bool> _request(

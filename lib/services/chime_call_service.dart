@@ -52,7 +52,13 @@ class ChimeCallService extends CallMediaService {
 
   @override
   String get diagnosticState =>
-      'connection=${_isConnected ? "connected" : _isReconnecting ? "reconnecting" : _isConnecting ? "connecting" : "disconnected"} '
+      'connection=${_isConnected
+          ? "connected"
+          : _isReconnecting
+          ? "reconnecting"
+          : _isConnecting
+          ? "connecting"
+          : "disconnected"} '
       'localVideo=$_isLocalVideoActive remoteVideo=$_isRemoteVideoActive '
       'remoteParticipant=$_hasRemoteParticipant';
 
@@ -201,9 +207,10 @@ class ChimeCallService extends CallMediaService {
   // ── Native event handling ───────────────────────────────────────────
 
   void _listenToNativeEvents() {
-    _nativeEventSubscription = _eventChannel
-        .receiveBroadcastStream()
-        .listen(_handleNativeEvent, onError: _handleNativeEventError);
+    _nativeEventSubscription = _eventChannel.receiveBroadcastStream().listen(
+      _handleNativeEvent,
+      onError: _handleNativeEventError,
+    );
   }
 
   void _handleNativeEvent(dynamic event) {
@@ -269,7 +276,7 @@ class ChimeCallService extends CallMediaService {
   // ── Permissions ─────────────────────────────────────────────────────
 
   Future<void> _ensurePermissions({required bool videoEnabled}) async {
-    final microphone = await Permission.microphone.request();
+    final microphone = await Permission.microphone.status;
     if (!microphone.isGranted) {
       throw const CallMediaException('Microphone permission is required.');
     }
@@ -279,7 +286,7 @@ class ChimeCallService extends CallMediaService {
   }
 
   Future<void> _ensureCameraPermission() async {
-    final camera = await Permission.camera.request();
+    final camera = await Permission.camera.status;
     if (!camera.isGranted) {
       throw const CallMediaException('Camera permission is required.');
     }

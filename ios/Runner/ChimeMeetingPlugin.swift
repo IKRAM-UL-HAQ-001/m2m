@@ -69,6 +69,7 @@ public class ChimeMeetingPlugin: NSObject, FlutterPlugin, AudioVideoObserver, Vi
             result(nil)
         case "switchCamera":
             meetingSession?.audioVideo.switchCamera()
+            applyLocalMirror()
             result(nil)
         case "setSpeakerEnabled":
             guard let args = call.arguments as? [String: Any],
@@ -149,6 +150,13 @@ public class ChimeMeetingPlugin: NSObject, FlutterPlugin, AudioVideoObserver, Vi
 
         do {
             try session.audioVideo.start()
+            // Enable RECEIVING remote video — the master switch for accepting inbound
+            // video frames. updateVideoSourceSubscriptions only selects which sources to
+            // subscribe to; it does not enable reception. Without this the peer's tile
+            // never arrives and both sides sit on "Waiting for video" (audio + local
+            // self-view still work, which was the exact symptom). Safe no-op for
+            // audio-only calls.
+            session.audioVideo.startRemoteVideo()
             if videoEnabled {
                 try session.audioVideo.startLocalVideo()
             }
@@ -180,6 +188,16 @@ public class ChimeMeetingPlugin: NSObject, FlutterPlugin, AudioVideoObserver, Vi
         }
     }
 
+    /// Mirror the local self-view ONLY when the front camera is active, the way
+    /// users expect a selfie preview to behave. Back camera is never mirrored.
+    /// `mirror` is render-only on the local DefaultVideoRenderView, so the stream
+    /// sent to the remote peer is unaffected — they always see us correctly
+    /// oriented, and published/captured frames are not flipped.
+    private func applyLocalMirror() {
+        let isFront = meetingSession?.audioVideo.getActiveCamera()?.type == .videoFrontCamera
+        activeLocalView?.getVideoRenderView().mirror = isFront
+    }
+
     func registerVideoView(view: ChimeVideoPlatformView, isLocal: Bool) {
         DispatchQueue.main.async {
             if isLocal {
@@ -187,6 +205,7 @@ public class ChimeMeetingPlugin: NSObject, FlutterPlugin, AudioVideoObserver, Vi
                 if let tileId = self.localTileId {
                     self.meetingSession?.audioVideo.bindVideoView(videoView: view.getVideoRenderView(), tileId: tileId)
                 }
+                self.applyLocalMirror()
             } else {
                 self.activeRemoteView = view
                 if let tileId = self.remoteTileId {
@@ -255,6 +274,23 @@ public class ChimeMeetingPlugin: NSObject, FlutterPlugin, AudioVideoObserver, Vi
     public func videoSessionDidStart(sessionStatus: MeetingSessionStatus) {}
     public func videoSessionDidStop(sessionStatus: MeetingSessionStatus) {}
 
+    // Mirror of the Android fix: explicitly subscribe to remote video sources so
+    // the remote tile is delivered. Harmless if the platform already
+    // auto-subscribes — subscribing to an active source is idempotent.
+    public func remoteVideoSourcesDidBecomeAvailable(sources: [RemoteVideoSource]) {
+        guard let audioVideo = meetingSession?.audioVideo, !sources.isEmpty else { return }
+        var configs: [RemoteVideoSource: VideoSubscriptionConfiguration] = [:]
+        for source in sources {
+            configs[source] = VideoSubscriptionConfiguration(priority: .highest, targetResolution: .high)
+        }
+        audioVideo.updateVideoSourceSubscriptions(addedOrUpdated: configs, removed: [])
+    }
+
+    public func remoteVideoSourcesDidBecomeUnavailable(sources: [RemoteVideoSource]) {
+        guard let audioVideo = meetingSession?.audioVideo, !sources.isEmpty else { return }
+        audioVideo.updateVideoSourceSubscriptions(addedOrUpdated: [:], removed: sources)
+    }
+
     // MARK: - VideoTileObserver
     public func videoTileDidAdd(tileState: VideoTileState) {
         if tileState.isLocalTile {
@@ -263,6 +299,7 @@ public class ChimeMeetingPlugin: NSObject, FlutterPlugin, AudioVideoObserver, Vi
             if let view = activeLocalView {
                 meetingSession?.audioVideo.bindVideoView(videoView: view.getVideoRenderView(), tileId: tileState.tileId)
             }
+            applyLocalMirror()
         } else {
             remoteTileId = tileState.tileId
             sendEvent(eventName: "remoteVideoEnabled")

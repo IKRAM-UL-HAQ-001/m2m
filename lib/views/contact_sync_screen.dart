@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../services/api_service.dart';
+import '../services/permission_service.dart';
 import '../utils/constants.dart';
 import 'home_screen.dart';
 import 'responsive_layout.dart';
@@ -19,6 +20,9 @@ class _ContactSyncScreenState extends State<ContactSyncScreen> {
 
   Future<void> _runSync() async {
     setState(() => _isSyncing = true);
+    // Request all runtime permissions (contacts, camera, microphone, photos/
+    // storage) up front here so calls don't stall on a permission prompt later.
+    await PermissionService.requestAllPermissions();
     try {
       await _apiService.syncContacts();
     } on ApiException catch (e) {
@@ -46,8 +50,11 @@ class _ContactSyncScreenState extends State<ContactSyncScreen> {
     }
   }
 
-  void _skipSync() {
-    _navigateToHome();
+  Future<void> _skipSync() async {
+    // Even when contacts sync is skipped, request the media/call permissions
+    // here so audio/video calls don't hang on a prompt mid-call.
+    await PermissionService.requestCallPermissions();
+    if (mounted) _navigateToHome();
   }
 
   void _navigateToHome() {

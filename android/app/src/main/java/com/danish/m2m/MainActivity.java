@@ -9,7 +9,9 @@ import android.media.Ringtone;
 import android.media.RingtoneManager;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Bundle;
 import android.util.Log;
+import android.view.WindowManager;
 import androidx.annotation.NonNull;
 import io.flutter.embedding.android.FlutterActivity;
 import io.flutter.embedding.engine.FlutterEngine;
@@ -20,6 +22,28 @@ public class MainActivity extends FlutterActivity {
     private static final String CALL_SERVICE_CHANNEL = "com.danish.m2m/call_service";
     private static final String TAG = "M2MMainActivity";
     private Ringtone ringtone;
+
+    // When an incoming-call FCM push fires the notification's full-screen intent
+    // while the device is locked or the screen is off, Android launches THIS
+    // activity. For the call screen to actually appear over the keyguard (instead
+    // of staying hidden behind it — which left the user seeing only the heads-up
+    // notification) the activity must declare itself show-when-locked and ask the
+    // system to turn the screen on. We do this in onCreate so it takes effect at
+    // launch time, before Flutter boots. This does NOT unlock the device or expose
+    // secured content — it only lets our own window render above the lock screen,
+    // exactly like a phone dialer / WhatsApp call screen.
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true);
+            setTurnScreenOn(true);
+        } else {
+            getWindow().addFlags(
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+                    | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
+        }
+    }
 
     @Override
     public void configureFlutterEngine(@NonNull FlutterEngine flutterEngine) {

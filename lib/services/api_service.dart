@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
@@ -531,6 +532,7 @@ class ApiService {
     required String callType,
   }) async {
     try {
+      await _ensureCallAuthReady();
       final response = await _dio.post(
         '/api/calls/start/',
         data: {'receiver_id': receiverId, 'call_type': callType},
@@ -564,6 +566,7 @@ class ApiService {
   Future<void> callHeartbeat(int callId) async {
     if (callId <= 0) return;
     try {
+      await _ensureCallAuthReady();
       await _dio.post('/api/calls/$callId/heartbeat/', data: {});
     } catch (_) {
       // Non-critical; a few missed pings are tolerated by the server timeout.
@@ -587,6 +590,7 @@ class ApiService {
 
   Future<CallSession> getCallDetail(int callId) async {
     try {
+      await _ensureCallAuthReady();
       final response = await _dio.get('/api/calls/$callId/');
       return CallSession.fromJson(_asMap(response.data));
     } on DioException catch (error) {
@@ -596,6 +600,7 @@ class ApiService {
 
   Future<CallSession?> getCurrentCall() async {
     try {
+      await _ensureCallAuthReady();
       final response = await _dio.get('/api/calls/current/');
       final data = _asMap(response.data);
       final callData = data['call'];
@@ -621,6 +626,7 @@ class ApiService {
 
   Future<CallJoinCredentials> joinCall(int callId) async {
     try {
+      await _ensureCallAuthReady();
       final response = await _dio.post('/api/calls/$callId/join/', data: {});
       return CallJoinCredentials.fromJson(_asMap(response.data));
     } on DioException catch (error) {
@@ -630,11 +636,16 @@ class ApiService {
 
   Future<CallSession> _callAction(int callId, String action) async {
     try {
+      await _ensureCallAuthReady();
       final response = await _dio.post('/api/calls/$callId/$action/', data: {});
       return CallSession.fromJson(_asMap(response.data));
     } on DioException catch (error) {
       _throwCallApiError(error);
     }
+  }
+
+  Future<void> _ensureCallAuthReady() async {
+    await TokenStorage.getAccessToken();
   }
 
   Future<Map<String, dynamic>> getStatusPrivacy() async {
@@ -673,6 +684,7 @@ class ApiService {
     String? fileName,
     String? type,
     String? replyTo,
+    Map<String, dynamic>? statusReply,
     double? duration,
     void Function(int, int)? onProgress,
   }) async {
@@ -690,6 +702,8 @@ class ApiService {
         ),
     };
     if (replyTo != null) data['reply_to'] = replyTo;
+    // Sent as a JSON string; the backend parses it into the status_reply field.
+    if (statusReply != null) data['status_reply'] = jsonEncode(statusReply);
     final formData = FormData.fromMap(data);
 
     final response = await _uploadDio.post(
@@ -819,10 +833,7 @@ class ApiService {
   }
 
   Future<void> deleteChat(String chatId) async {
-    await _dio.post(
-      '/api/delete-chat/',
-      data: {'chat_id': int.parse(chatId)},
-    );
+    await _dio.post('/api/delete-chat/', data: {'chat_id': int.parse(chatId)});
   }
 
   Future<void> editMessage(String messageId, String newText) async {

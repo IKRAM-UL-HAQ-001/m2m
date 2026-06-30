@@ -9,9 +9,6 @@ import android.app.Service;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ServiceInfo;
-import android.media.AudioAttributes;
-import android.media.AudioFocusRequest;
-import android.media.AudioManager;
 import android.os.Build;
 import android.os.IBinder;
 import android.util.Log;
@@ -24,11 +21,15 @@ public class CallForegroundService extends Service {
     private static final int NOTIFICATION_ID = 900100;
     private static final String TAG = "M2MCallService";
 
-    private AudioManager audioManager;
-    private AudioFocusRequest audioFocusRequest;
-    private int previousAudioMode = AudioManager.MODE_NORMAL;
-    private final AudioManager.OnAudioFocusChangeListener audioFocusChangeListener =
-        focusChange -> Log.d(TAG, "Audio focus changed: " + focusChange);
+    // NOTE: this service deliberately does NOT touch AudioManager (mode/focus).
+    // The Amazon Chime SDK is the SOLE owner of the call audio session — it sets
+    // MODE_IN_COMMUNICATION, requests audio focus, owns routing, and runs the
+    // voice-processing unit that does acoustic echo cancellation. When this
+    // service also set the mode/focus (and reset the mode on its racy stop), it
+    // disrupted Chime's AEC unit and the user heard their own voice echoed.
+    // Routing (speaker/earpiece) is handled by the plugin via chooseAudioDevice.
+    // This service's only job is the ongoing-call notification + the microphone
+    // FGS type that legally keeps the mic alive in the background.
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
@@ -40,17 +41,14 @@ public class CallForegroundService extends Service {
             return START_NOT_STICKY;
         }
 
-        requestCallAudioFocus();
         try {
             startForegroundCompat(buildNotification());
         } catch (SecurityException exception) {
             Log.e(TAG, "Call foreground service security failure", exception);
-            abandonCallAudioFocus();
             stopSelf();
             return START_NOT_STICKY;
         } catch (RuntimeException exception) {
             Log.e(TAG, "Call foreground service start failed", exception);
-            abandonCallAudioFocus();
             stopSelf();
             return START_NOT_STICKY;
         }
@@ -61,12 +59,6 @@ public class CallForegroundService extends Service {
     @Override
     public IBinder onBind(Intent intent) {
         return null;
-    }
-
-    @Override
-    public void onDestroy() {
-        abandonCallAudioFocus();
-        super.onDestroy();
     }
 
     private Notification buildNotification() {
@@ -110,45 +102,6 @@ public class CallForegroundService extends Service {
     private boolean hasRecordAudioPermission() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return true;
         return checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
-    }
-
-    private void requestCallAudioFocus() {
-        audioManager = (AudioManager) getSystemService(AUDIO_SERVICE);
-        if (audioManager == null) return;
-
-        previousAudioMode = audioManager.getMode();
-        audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            AudioAttributes attributes = new AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                .build();
-            audioFocusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                .setAudioAttributes(attributes)
-                .setAcceptsDelayedFocusGain(false)
-                .setOnAudioFocusChangeListener(audioFocusChangeListener)
-                .build();
-            audioManager.requestAudioFocus(audioFocusRequest);
-        } else {
-            audioManager.requestAudioFocus(
-                audioFocusChangeListener,
-                AudioManager.STREAM_VOICE_CALL,
-                AudioManager.AUDIOFOCUS_GAIN
-            );
-        }
-    }
-
-    private void abandonCallAudioFocus() {
-        if (audioManager == null) return;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && audioFocusRequest != null) {
-            audioManager.abandonAudioFocusRequest(audioFocusRequest);
-            audioFocusRequest = null;
-        } else {
-            audioManager.abandonAudioFocus(audioFocusChangeListener);
-        }
-        audioManager.setMode(previousAudioMode);
-        audioManager = null;
     }
 
     private void createNotificationChannel() {

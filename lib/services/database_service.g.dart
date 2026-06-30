@@ -1043,6 +1043,17 @@ class $MessagesTableTable extends MessagesTable
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _statusReplyJsonMeta = const VerificationMeta(
+    'statusReplyJson',
+  );
+  @override
+  late final GeneratedColumn<String> statusReplyJson = GeneratedColumn<String>(
+    'status_reply_json',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _isMeMeta = const VerificationMeta('isMe');
   @override
   late final GeneratedColumn<bool> isMe = GeneratedColumn<bool>(
@@ -1195,6 +1206,7 @@ class $MessagesTableTable extends MessagesTable
     replyToThumbnailUrl,
     replyToFileName,
     reactionsJson,
+    statusReplyJson,
     isMe,
     isEdited,
     isDeleted,
@@ -1398,6 +1410,15 @@ class $MessagesTableTable extends MessagesTable
         ),
       );
     }
+    if (data.containsKey('status_reply_json')) {
+      context.handle(
+        _statusReplyJsonMeta,
+        statusReplyJson.isAcceptableOrUnknown(
+          data['status_reply_json']!,
+          _statusReplyJsonMeta,
+        ),
+      );
+    }
     if (data.containsKey('is_me')) {
       context.handle(
         _isMeMeta,
@@ -1578,6 +1599,10 @@ class $MessagesTableTable extends MessagesTable
         DriftSqlType.string,
         data['${effectivePrefix}reactions_json'],
       ),
+      statusReplyJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}status_reply_json'],
+      ),
       isMe: attachedDatabase.typeMapping.read(
         DriftSqlType.bool,
         data['${effectivePrefix}is_me'],
@@ -1655,6 +1680,7 @@ class MessageEntity extends DataClass implements Insertable<MessageEntity> {
   final String? replyToThumbnailUrl;
   final String? replyToFileName;
   final String? reactionsJson;
+  final String? statusReplyJson;
   final bool isMe;
   final bool isEdited;
   final bool isDeleted;
@@ -1690,6 +1716,7 @@ class MessageEntity extends DataClass implements Insertable<MessageEntity> {
     this.replyToThumbnailUrl,
     this.replyToFileName,
     this.reactionsJson,
+    this.statusReplyJson,
     required this.isMe,
     required this.isEdited,
     required this.isDeleted,
@@ -1765,6 +1792,9 @@ class MessageEntity extends DataClass implements Insertable<MessageEntity> {
     }
     if (!nullToAbsent || reactionsJson != null) {
       map['reactions_json'] = Variable<String>(reactionsJson);
+    }
+    if (!nullToAbsent || statusReplyJson != null) {
+      map['status_reply_json'] = Variable<String>(statusReplyJson);
     }
     map['is_me'] = Variable<bool>(isMe);
     map['is_edited'] = Variable<bool>(isEdited);
@@ -1845,6 +1875,9 @@ class MessageEntity extends DataClass implements Insertable<MessageEntity> {
       reactionsJson: reactionsJson == null && nullToAbsent
           ? const Value.absent()
           : Value(reactionsJson),
+      statusReplyJson: statusReplyJson == null && nullToAbsent
+          ? const Value.absent()
+          : Value(statusReplyJson),
       isMe: Value(isMe),
       isEdited: Value(isEdited),
       isDeleted: Value(isDeleted),
@@ -1896,6 +1929,7 @@ class MessageEntity extends DataClass implements Insertable<MessageEntity> {
       ),
       replyToFileName: serializer.fromJson<String?>(json['replyToFileName']),
       reactionsJson: serializer.fromJson<String?>(json['reactionsJson']),
+      statusReplyJson: serializer.fromJson<String?>(json['statusReplyJson']),
       isMe: serializer.fromJson<bool>(json['isMe']),
       isEdited: serializer.fromJson<bool>(json['isEdited']),
       isDeleted: serializer.fromJson<bool>(json['isDeleted']),
@@ -1936,6 +1970,7 @@ class MessageEntity extends DataClass implements Insertable<MessageEntity> {
       'replyToThumbnailUrl': serializer.toJson<String?>(replyToThumbnailUrl),
       'replyToFileName': serializer.toJson<String?>(replyToFileName),
       'reactionsJson': serializer.toJson<String?>(reactionsJson),
+      'statusReplyJson': serializer.toJson<String?>(statusReplyJson),
       'isMe': serializer.toJson<bool>(isMe),
       'isEdited': serializer.toJson<bool>(isEdited),
       'isDeleted': serializer.toJson<bool>(isDeleted),
@@ -1974,6 +2009,7 @@ class MessageEntity extends DataClass implements Insertable<MessageEntity> {
     Value<String?> replyToThumbnailUrl = const Value.absent(),
     Value<String?> replyToFileName = const Value.absent(),
     Value<String?> reactionsJson = const Value.absent(),
+    Value<String?> statusReplyJson = const Value.absent(),
     bool? isMe,
     bool? isEdited,
     bool? isDeleted,
@@ -2021,6 +2057,9 @@ class MessageEntity extends DataClass implements Insertable<MessageEntity> {
     reactionsJson: reactionsJson.present
         ? reactionsJson.value
         : this.reactionsJson,
+    statusReplyJson: statusReplyJson.present
+        ? statusReplyJson.value
+        : this.statusReplyJson,
     isMe: isMe ?? this.isMe,
     isEdited: isEdited ?? this.isEdited,
     isDeleted: isDeleted ?? this.isDeleted,
@@ -2084,6 +2123,9 @@ class MessageEntity extends DataClass implements Insertable<MessageEntity> {
       reactionsJson: data.reactionsJson.present
           ? data.reactionsJson.value
           : this.reactionsJson,
+      statusReplyJson: data.statusReplyJson.present
+          ? data.statusReplyJson.value
+          : this.statusReplyJson,
       isMe: data.isMe.present ? data.isMe.value : this.isMe,
       isEdited: data.isEdited.present ? data.isEdited.value : this.isEdited,
       isDeleted: data.isDeleted.present ? data.isDeleted.value : this.isDeleted,
@@ -2130,6 +2172,7 @@ class MessageEntity extends DataClass implements Insertable<MessageEntity> {
           ..write('replyToThumbnailUrl: $replyToThumbnailUrl, ')
           ..write('replyToFileName: $replyToFileName, ')
           ..write('reactionsJson: $reactionsJson, ')
+          ..write('statusReplyJson: $statusReplyJson, ')
           ..write('isMe: $isMe, ')
           ..write('isEdited: $isEdited, ')
           ..write('isDeleted: $isDeleted, ')
@@ -2170,6 +2213,7 @@ class MessageEntity extends DataClass implements Insertable<MessageEntity> {
     replyToThumbnailUrl,
     replyToFileName,
     reactionsJson,
+    statusReplyJson,
     isMe,
     isEdited,
     isDeleted,
@@ -2209,6 +2253,7 @@ class MessageEntity extends DataClass implements Insertable<MessageEntity> {
           other.replyToThumbnailUrl == this.replyToThumbnailUrl &&
           other.replyToFileName == this.replyToFileName &&
           other.reactionsJson == this.reactionsJson &&
+          other.statusReplyJson == this.statusReplyJson &&
           other.isMe == this.isMe &&
           other.isEdited == this.isEdited &&
           other.isDeleted == this.isDeleted &&
@@ -2246,6 +2291,7 @@ class MessagesTableCompanion extends UpdateCompanion<MessageEntity> {
   final Value<String?> replyToThumbnailUrl;
   final Value<String?> replyToFileName;
   final Value<String?> reactionsJson;
+  final Value<String?> statusReplyJson;
   final Value<bool> isMe;
   final Value<bool> isEdited;
   final Value<bool> isDeleted;
@@ -2282,6 +2328,7 @@ class MessagesTableCompanion extends UpdateCompanion<MessageEntity> {
     this.replyToThumbnailUrl = const Value.absent(),
     this.replyToFileName = const Value.absent(),
     this.reactionsJson = const Value.absent(),
+    this.statusReplyJson = const Value.absent(),
     this.isMe = const Value.absent(),
     this.isEdited = const Value.absent(),
     this.isDeleted = const Value.absent(),
@@ -2319,6 +2366,7 @@ class MessagesTableCompanion extends UpdateCompanion<MessageEntity> {
     this.replyToThumbnailUrl = const Value.absent(),
     this.replyToFileName = const Value.absent(),
     this.reactionsJson = const Value.absent(),
+    this.statusReplyJson = const Value.absent(),
     this.isMe = const Value.absent(),
     this.isEdited = const Value.absent(),
     this.isDeleted = const Value.absent(),
@@ -2364,6 +2412,7 @@ class MessagesTableCompanion extends UpdateCompanion<MessageEntity> {
     Expression<String>? replyToThumbnailUrl,
     Expression<String>? replyToFileName,
     Expression<String>? reactionsJson,
+    Expression<String>? statusReplyJson,
     Expression<bool>? isMe,
     Expression<bool>? isEdited,
     Expression<bool>? isDeleted,
@@ -2402,6 +2451,7 @@ class MessagesTableCompanion extends UpdateCompanion<MessageEntity> {
         'reply_to_thumbnail_url': replyToThumbnailUrl,
       if (replyToFileName != null) 'reply_to_file_name': replyToFileName,
       if (reactionsJson != null) 'reactions_json': reactionsJson,
+      if (statusReplyJson != null) 'status_reply_json': statusReplyJson,
       if (isMe != null) 'is_me': isMe,
       if (isEdited != null) 'is_edited': isEdited,
       if (isDeleted != null) 'is_deleted': isDeleted,
@@ -2441,6 +2491,7 @@ class MessagesTableCompanion extends UpdateCompanion<MessageEntity> {
     Value<String?>? replyToThumbnailUrl,
     Value<String?>? replyToFileName,
     Value<String?>? reactionsJson,
+    Value<String?>? statusReplyJson,
     Value<bool>? isMe,
     Value<bool>? isEdited,
     Value<bool>? isDeleted,
@@ -2478,6 +2529,7 @@ class MessagesTableCompanion extends UpdateCompanion<MessageEntity> {
       replyToThumbnailUrl: replyToThumbnailUrl ?? this.replyToThumbnailUrl,
       replyToFileName: replyToFileName ?? this.replyToFileName,
       reactionsJson: reactionsJson ?? this.reactionsJson,
+      statusReplyJson: statusReplyJson ?? this.statusReplyJson,
       isMe: isMe ?? this.isMe,
       isEdited: isEdited ?? this.isEdited,
       isDeleted: isDeleted ?? this.isDeleted,
@@ -2571,6 +2623,9 @@ class MessagesTableCompanion extends UpdateCompanion<MessageEntity> {
     if (reactionsJson.present) {
       map['reactions_json'] = Variable<String>(reactionsJson.value);
     }
+    if (statusReplyJson.present) {
+      map['status_reply_json'] = Variable<String>(statusReplyJson.value);
+    }
     if (isMe.present) {
       map['is_me'] = Variable<bool>(isMe.value);
     }
@@ -2634,6 +2689,7 @@ class MessagesTableCompanion extends UpdateCompanion<MessageEntity> {
           ..write('replyToThumbnailUrl: $replyToThumbnailUrl, ')
           ..write('replyToFileName: $replyToFileName, ')
           ..write('reactionsJson: $reactionsJson, ')
+          ..write('statusReplyJson: $statusReplyJson, ')
           ..write('isMe: $isMe, ')
           ..write('isEdited: $isEdited, ')
           ..write('isDeleted: $isDeleted, ')
@@ -3390,6 +3446,7 @@ typedef $$MessagesTableTableCreateCompanionBuilder =
       Value<String?> replyToThumbnailUrl,
       Value<String?> replyToFileName,
       Value<String?> reactionsJson,
+      Value<String?> statusReplyJson,
       Value<bool> isMe,
       Value<bool> isEdited,
       Value<bool> isDeleted,
@@ -3428,6 +3485,7 @@ typedef $$MessagesTableTableUpdateCompanionBuilder =
       Value<String?> replyToThumbnailUrl,
       Value<String?> replyToFileName,
       Value<String?> reactionsJson,
+      Value<String?> statusReplyJson,
       Value<bool> isMe,
       Value<bool> isEdited,
       Value<bool> isDeleted,
@@ -3568,6 +3626,11 @@ class $$MessagesTableTableFilterComposer
 
   ColumnFilters<String> get reactionsJson => $composableBuilder(
     column: $table.reactionsJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get statusReplyJson => $composableBuilder(
+    column: $table.statusReplyJson,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -3751,6 +3814,11 @@ class $$MessagesTableTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get statusReplyJson => $composableBuilder(
+    column: $table.statusReplyJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<bool> get isMe => $composableBuilder(
     column: $table.isMe,
     builder: (column) => ColumnOrderings(column),
@@ -3909,6 +3977,11 @@ class $$MessagesTableTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<String> get statusReplyJson => $composableBuilder(
+    column: $table.statusReplyJson,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<bool> get isMe =>
       $composableBuilder(column: $table.isMe, builder: (column) => column);
 
@@ -4001,6 +4074,7 @@ class $$MessagesTableTableTableManager
                 Value<String?> replyToThumbnailUrl = const Value.absent(),
                 Value<String?> replyToFileName = const Value.absent(),
                 Value<String?> reactionsJson = const Value.absent(),
+                Value<String?> statusReplyJson = const Value.absent(),
                 Value<bool> isMe = const Value.absent(),
                 Value<bool> isEdited = const Value.absent(),
                 Value<bool> isDeleted = const Value.absent(),
@@ -4037,6 +4111,7 @@ class $$MessagesTableTableTableManager
                 replyToThumbnailUrl: replyToThumbnailUrl,
                 replyToFileName: replyToFileName,
                 reactionsJson: reactionsJson,
+                statusReplyJson: statusReplyJson,
                 isMe: isMe,
                 isEdited: isEdited,
                 isDeleted: isDeleted,
@@ -4075,6 +4150,7 @@ class $$MessagesTableTableTableManager
                 Value<String?> replyToThumbnailUrl = const Value.absent(),
                 Value<String?> replyToFileName = const Value.absent(),
                 Value<String?> reactionsJson = const Value.absent(),
+                Value<String?> statusReplyJson = const Value.absent(),
                 Value<bool> isMe = const Value.absent(),
                 Value<bool> isEdited = const Value.absent(),
                 Value<bool> isDeleted = const Value.absent(),
@@ -4111,6 +4187,7 @@ class $$MessagesTableTableTableManager
                 replyToThumbnailUrl: replyToThumbnailUrl,
                 replyToFileName: replyToFileName,
                 reactionsJson: reactionsJson,
+                statusReplyJson: statusReplyJson,
                 isMe: isMe,
                 isEdited: isEdited,
                 isDeleted: isDeleted,

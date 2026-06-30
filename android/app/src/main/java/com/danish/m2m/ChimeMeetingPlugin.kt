@@ -12,6 +12,9 @@ import com.amazonaws.services.chime.sdk.meetings.audiovideo.video.VideoTileState
 import com.amazonaws.services.chime.sdk.meetings.device.MediaDevice
 import com.amazonaws.services.chime.sdk.meetings.device.MediaDeviceType
 import com.amazonaws.services.chime.sdk.meetings.audiovideo.video.RemoteVideoSource
+import com.amazonaws.services.chime.sdk.meetings.audiovideo.video.VideoPriority
+import com.amazonaws.services.chime.sdk.meetings.audiovideo.video.VideoResolution
+import com.amazonaws.services.chime.sdk.meetings.audiovideo.video.VideoSubscriptionConfiguration
 import com.amazonaws.services.chime.sdk.meetings.audiovideo.AttendeeInfo
 import com.amazonaws.services.chime.sdk.meetings.realtime.RealtimeObserver
 import com.amazonaws.services.chime.sdk.meetings.session.Attendee
@@ -111,6 +114,7 @@ class ChimeMeetingPlugin(private val context: Context) :
             }
             "switchCamera" -> {
                 meetingSession?.audioVideo?.switchCamera()
+                applyLocalMirror()
                 result.success(null)
             }
             "setSpeakerEnabled" -> {
@@ -181,6 +185,16 @@ class ChimeMeetingPlugin(private val context: Context) :
         session.audioVideo.addRealtimeObserver(this)
 
         session.audioVideo.start()
+        // Enable RECEIVING remote video. This is the master switch — it calls
+        // VideoClient.setReceiving(true) under the hood. Without it the video
+        // client never accepts ANY inbound video frames, so onRemoteVideoSourceAvailable
+        // can fire and we can call updateVideoSourceSubscriptions all we want, but
+        // onVideoTileAdded for the remote tile never fires and the peer is stuck on
+        // "Waiting for video". updateVideoSourceSubscriptions only PICKS sources; it
+        // does NOT flip the receiving flag. Audio + local self-view work without this,
+        // which is exactly the symptom we were seeing. Always start it (cheap no-op for
+        // audio-only calls — no remote video sources will be advertised).
+        session.audioVideo.startRemoteVideo()
         if (videoEnabled) {
             session.audioVideo.startLocalVideo()
         }
@@ -215,6 +229,19 @@ class ChimeMeetingPlugin(private val context: Context) :
         }
     }
 
+    /**
+     * Mirror the local self-view ONLY when the front camera is active, the way
+     * users expect a selfie preview to behave. Back camera is never mirrored.
+     * `mirror` is a render-only flag on the local DefaultVideoRenderView, so the
+     * stream sent to the remote peer is unaffected — they always see us
+     * correctly oriented, and captured/published frames are not flipped.
+     */
+    private fun applyLocalMirror() {
+        val isFront = meetingSession?.audioVideo?.getActiveCamera()?.type ==
+            MediaDeviceType.VIDEO_FRONT_CAMERA
+        activeLocalView?.getVideoRenderView()?.mirror = isFront
+    }
+
     fun registerVideoView(view: ChimeVideoPlatformView, isLocal: Boolean) {
         mainHandler.post {
             if (isLocal) {
@@ -222,6 +249,7 @@ class ChimeMeetingPlugin(private val context: Context) :
                 localTileId?.let { tileId ->
                     meetingSession?.audioVideo?.bindVideoView(view.getVideoRenderView(), tileId)
                 }
+                applyLocalMirror()
             } else {
                 activeRemoteView = view
                 remoteTileId?.let { tileId ->
@@ -292,8 +320,26 @@ class ChimeMeetingPlugin(private val context: Context) :
     override fun onVideoSessionStarted(sessionStatus: MeetingSessionStatus) {}
     override fun onVideoSessionStopped(sessionStatus: MeetingSessionStatus) {}
     override fun onCameraSendAvailabilityUpdated(available: Boolean) {}
-    override fun onRemoteVideoSourceAvailable(sources: List<RemoteVideoSource>) {}
-    override fun onRemoteVideoSourceUnavailable(sources: List<RemoteVideoSource>) {}
+
+    // Chime SDK 0.21.0 does NOT auto-deliver remote video. When a peer turns on
+    // their camera the SDK advertises the source here, and we must explicitly
+    // subscribe or onVideoTileAdded never fires for the remote tile — which is
+    // exactly why remote video never rendered. Subscribe to every advertised
+    // source at high priority/resolution (1:1 calls only ever have one).
+    override fun onRemoteVideoSourceAvailable(sources: List<RemoteVideoSource>) {
+        val audioVideo = meetingSession?.audioVideo ?: return
+        if (sources.isEmpty()) return
+        val subscriptions = sources.associateWith {
+            VideoSubscriptionConfiguration(VideoPriority.Highest, VideoResolution.High)
+        }
+        audioVideo.updateVideoSourceSubscriptions(subscriptions, emptyArray())
+    }
+
+    override fun onRemoteVideoSourceUnavailable(sources: List<RemoteVideoSource>) {
+        val audioVideo = meetingSession?.audioVideo ?: return
+        if (sources.isEmpty()) return
+        audioVideo.updateVideoSourceSubscriptions(emptyMap(), sources.toTypedArray())
+    }
 
     // VideoTileObserver implementations
     override fun onVideoTileAdded(tileState: VideoTileState) {
@@ -303,6 +349,7 @@ class ChimeMeetingPlugin(private val context: Context) :
             activeLocalView?.let { view ->
                 meetingSession?.audioVideo?.bindVideoView(view.getVideoRenderView(), tileState.tileId)
             }
+            applyLocalMirror()
         } else {
             remoteTileId = tileState.tileId
             sendEvent("remoteVideoEnabled")
