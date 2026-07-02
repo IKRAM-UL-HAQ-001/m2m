@@ -521,18 +521,21 @@ class CallViewModel extends ChangeNotifier {
     _isVideoEnabled = !_isVideoEnabled;
     notifyListeners();
     unawaited(
-      _mediaService.setCameraEnabled(_isVideoEnabled).then((_) {
-        final callId = _currentCall?.id;
-        if (callId != null) {
-          SocketService().sendCallVideoEvent(
-            _isVideoEnabled ? 'call_video_enabled' : 'call_video_disabled',
-            callId,
-          );
-        }
-      }).catchError((error) {
-        _isVideoEnabled = !_isVideoEnabled;
-        _handleMediaError(error);
-      }),
+      _mediaService
+          .setCameraEnabled(_isVideoEnabled)
+          .then((_) {
+            final callId = _currentCall?.id;
+            if (callId != null) {
+              SocketService().sendCallVideoEvent(
+                _isVideoEnabled ? 'call_video_enabled' : 'call_video_disabled',
+                callId,
+              );
+            }
+          })
+          .catchError((error) {
+            _isVideoEnabled = !_isVideoEnabled;
+            _handleMediaError(error);
+          }),
     );
   }
 
@@ -759,8 +762,19 @@ class CallViewModel extends ChangeNotifier {
   }
 
   void _handleMediaEvent(CallMediaEvent event) {
+    if (event == CallMediaEvent.localMuted) {
+      _isMuted = true;
+      notifyListeners();
+      return;
+    }
+    if (event == CallMediaEvent.localUnmuted) {
+      _isMuted = false;
+      notifyListeners();
+      return;
+    }
     if (_manualDisconnectRequested || _currentCall == null) return;
-    if (event == CallMediaEvent.disconnected || event == CallMediaEvent.failed) {
+    if (event == CallMediaEvent.disconnected ||
+        event == CallMediaEvent.failed) {
       _scheduleReconnectRecovery(event.name);
     }
   }
@@ -1061,7 +1075,9 @@ class CallViewModel extends ChangeNotifier {
       'caller_busy' => 'You are already in a call.',
       'already_in_call' => 'You are already in a call.',
       'call_not_joinable' => 'Call already ended or is not ready.',
-      'livekit_not_configured' || 'chime_not_configured' || 'call_server_not_configured' => 'Call server is not configured.',
+      'livekit_not_configured' ||
+      'chime_not_configured' ||
+      'call_server_not_configured' => 'Call server is not configured.',
       'permission_denied' => 'You do not have permission for this call.',
       'not_found' => 'Call not found.',
       'validation_error' => error.message,

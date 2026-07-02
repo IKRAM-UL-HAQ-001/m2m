@@ -127,12 +127,10 @@ class ChimeCallService extends CallMediaService {
     _isConnecting = false;
     _isReconnecting = false;
 
-    if (_isConnected) {
-      try {
-        await _channel.invokeMethod('leave');
-      } catch (e) {
-        debugPrint('Chime leave failed: $e');
-      }
+    try {
+      await _channel.invokeMethod('leave');
+    } catch (e) {
+      debugPrint('Chime leave failed: $e');
     }
 
     _isConnected = false;
@@ -248,6 +246,14 @@ class ChimeCallService extends CallMediaService {
         _hasRemoteParticipant = false;
         _isRemoteVideoActive = false;
         _eventController.add(CallMediaEvent.remoteLeft);
+        break;
+      case 'localMuted':
+        _isLocalAudioEnabled = false;
+        _eventController.add(CallMediaEvent.localMuted);
+        break;
+      case 'localUnmuted':
+        _isLocalAudioEnabled = true;
+        _eventController.add(CallMediaEvent.localUnmuted);
         break;
       case 'remoteVideoEnabled':
         _isRemoteVideoActive = true;

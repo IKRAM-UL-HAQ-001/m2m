@@ -1,8 +1,10 @@
 package com.danish.m2m
 
 import android.content.Context
+import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import com.amazonaws.services.chime.sdk.meetings.audiovideo.AudioVideoFacade
 import com.amazonaws.services.chime.sdk.meetings.audiovideo.AudioVideoObserver
 import com.amazonaws.services.chime.sdk.meetings.audiovideo.SignalUpdate
@@ -45,6 +47,7 @@ class ChimeMeetingPlugin(private val context: Context) :
     private var meetingSession: MeetingSession? = null
     private var eventSink: EventChannel.EventSink? = null
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val audioResetRunnable = Runnable { resetAndroidAudioAfterCall() }
 
     private var localTileId: Int? = null
     private var remoteTileId: Int? = null
@@ -53,8 +56,12 @@ class ChimeMeetingPlugin(private val context: Context) :
     private var activeRemoteView: ChimeVideoPlatformView? = null
 
     private var localAttendeeId: String? = null
+    private var desiredMuted: Boolean = false
 
     companion object {
+        private const val TAG = "M2MChimeMeeting"
+        private const val AUDIO_RESET_DELAY_MS = 500L
+
         fun registerWith(flutterEngine: FlutterEngine, context: Context) {
             val plugin = ChimeMeetingPlugin(context)
 
@@ -96,11 +103,13 @@ class ChimeMeetingPlugin(private val context: Context) :
             }
             "setMuted" -> {
                 val muted = call.argument<Boolean>("muted") ?: false
-                if (muted) {
-                    meetingSession?.audioVideo?.realtimeLocalMute()
-                } else {
-                    meetingSession?.audioVideo?.realtimeLocalUnmute()
+                val audioVideo = meetingSession?.audioVideo
+                if (audioVideo == null) {
+                    result.error("no_active_meeting", "No active meeting audio session.", null)
+                    return
                 }
+                desiredMuted = muted
+                applyLocalMute(audioVideo, muted)
                 result.success(null)
             }
             "setCameraEnabled" -> {
@@ -129,7 +138,7 @@ class ChimeMeetingPlugin(private val context: Context) :
     }
 
     private fun joinMeeting(meetingMap: Map<String, Any>, attendeeMap: Map<String, Any>, videoEnabled: Boolean) {
-        leaveMeeting()
+        leaveMeeting(resetAudio = false)
 
         val meetingId = meetingMap["MeetingId"] as? String ?: throw IllegalArgumentException("Missing MeetingId")
         val externalMeetingId = meetingMap["ExternalMeetingId"] as? String ?: ""
@@ -160,6 +169,7 @@ class ChimeMeetingPlugin(private val context: Context) :
         val joinToken = attendeeMap["JoinToken"] as? String ?: throw IllegalArgumentException("Missing JoinToken")
 
         localAttendeeId = attendeeId
+        desiredMuted = false
 
         val attendee = Attendee(
             AttendeeId = attendeeId,
@@ -200,17 +210,74 @@ class ChimeMeetingPlugin(private val context: Context) :
         }
     }
 
-    private fun leaveMeeting() {
+    private fun leaveMeeting(resetAudio: Boolean = true) {
+        mainHandler.removeCallbacks(audioResetRunnable)
         meetingSession?.let { session ->
-            session.audioVideo.stop()
-            session.audioVideo.removeAudioVideoObserver(this)
-            session.audioVideo.removeVideoTileObserver(this)
-            session.audioVideo.removeRealtimeObserver(this)
+            try {
+                session.audioVideo.realtimeLocalUnmute()
+            } catch (e: Exception) {
+                Log.w(TAG, "Unable to unmute before leaving meeting", e)
+            }
+            try {
+                session.audioVideo.stopLocalVideo()
+            } catch (e: Exception) {
+                Log.w(TAG, "Unable to stop local video before leaving meeting", e)
+            }
+            try {
+                session.audioVideo.stopRemoteVideo()
+            } catch (e: Exception) {
+                Log.w(TAG, "Unable to stop remote video before leaving meeting", e)
+            }
+            try {
+                session.audioVideo.stop()
+            } catch (e: Exception) {
+                Log.w(TAG, "Unable to stop meeting audio/video", e)
+            } finally {
+                session.audioVideo.removeAudioVideoObserver(this)
+                session.audioVideo.removeVideoTileObserver(this)
+                session.audioVideo.removeRealtimeObserver(this)
+            }
         }
         meetingSession = null
         localTileId = null
         remoteTileId = null
         localAttendeeId = null
+        desiredMuted = false
+        if (resetAudio) {
+            resetAndroidAudioAfterCall()
+            mainHandler.postDelayed(audioResetRunnable, AUDIO_RESET_DELAY_MS)
+        }
+    }
+
+    private fun applyLocalMute(audioVideo: AudioVideoFacade, muted: Boolean) {
+        if (muted) {
+            audioVideo.realtimeLocalMute()
+            sendEvent("localMuted")
+        } else {
+            audioVideo.realtimeLocalUnmute()
+            sendEvent("localUnmuted")
+        }
+    }
+
+    private fun resetAndroidAudioAfterCall() {
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+        try {
+            audioManager.isMicrophoneMute = false
+        } catch (e: Exception) {
+            Log.w(TAG, "Unable to clear microphone mute after call", e)
+        }
+        try {
+            audioManager.isSpeakerphoneOn = false
+        } catch (e: Exception) {
+            Log.w(TAG, "Unable to clear speaker route after call", e)
+        }
+        try {
+            if (audioManager.mode == AudioManager.MODE_IN_COMMUNICATION) {
+                audioManager.mode = AudioManager.MODE_NORMAL
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Unable to reset audio mode after call", e)
+        }
     }
 
     private fun setSpeaker(enabled: Boolean) {
@@ -292,6 +359,9 @@ class ChimeMeetingPlugin(private val context: Context) :
 
     // AudioVideoObserver implementations
     override fun onAudioSessionStarted(reconnecting: Boolean) {
+        meetingSession?.audioVideo?.let { audioVideo ->
+            applyLocalMute(audioVideo, desiredMuted)
+        }
         sendEvent(if (reconnecting) "reconnecting" else "connected")
     }
 
@@ -400,8 +470,23 @@ class ChimeMeetingPlugin(private val context: Context) :
         }
     }
 
-    override fun onAttendeesMuted(attendeeInfo: Array<AttendeeInfo>) {}
-    override fun onAttendeesUnmuted(attendeeInfo: Array<AttendeeInfo>) {}
+    override fun onAttendeesMuted(attendeeInfo: Array<AttendeeInfo>) {
+        for (info in attendeeInfo) {
+            if (info.attendeeId == localAttendeeId) {
+                desiredMuted = true
+                sendEvent("localMuted")
+            }
+        }
+    }
+
+    override fun onAttendeesUnmuted(attendeeInfo: Array<AttendeeInfo>) {
+        for (info in attendeeInfo) {
+            if (info.attendeeId == localAttendeeId) {
+                desiredMuted = false
+                sendEvent("localUnmuted")
+            }
+        }
+    }
     override fun onSignalStrengthChanged(signalUpdates: Array<SignalUpdate>) {}
     override fun onVolumeChanged(volumeUpdates: Array<VolumeUpdate>) {}
 }

@@ -794,6 +794,7 @@ class ApiService {
   Future<bool> deleteAccount(String otp) async {
     await _dio.post('/auth/delete-account/', data: {'otp': otp});
     await TokenStorage.clearAll();
+    await _dioClient.clearCache();
     return true;
   }
 

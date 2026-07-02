@@ -149,12 +149,13 @@ class DioClient {
   late Dio dio;
   late Dio uploadDio;
   late Dio _refreshDio;
+  final MemCacheStore _cacheStore = MemCacheStore();
 
   bool _initialized = false;
   bool _isRefreshing = false;
 
-  final _cacheOptions = CacheOptions(
-    store: MemCacheStore(),
+  late final _cacheOptions = CacheOptions(
+    store: _cacheStore,
     policy: CachePolicy.refreshForceCache,
     hitCacheOnErrorExcept: [401, 403],
     maxStale: const Duration(minutes: 5),
@@ -318,5 +319,9 @@ class DioClient {
     }
     final p = path.startsWith('/') ? path : '/$path';
     return '$baseUrl$p';
+  }
+
+  Future<void> clearCache() {
+    return _cacheStore.clean(staleOnly: false);
   }
 }

@@ -277,7 +277,11 @@ class AppDatabase extends _$AppDatabase {
     await (update(
       messageSyncStates,
     )..where((t) => t.chatId.equals(chatId))).write(
-      MessageSyncStatesCompanion(lastRefreshedAt: Value(DateTime.now())),
+      MessageSyncStatesCompanion(
+        nextCursor: Value(initialNextCursor),
+        hasMore: Value(initialHasMore),
+        lastRefreshedAt: Value(DateTime.now()),
+      ),
     );
   }
 
@@ -390,15 +394,15 @@ class AppDatabase extends _$AppDatabase {
     // delivered / read) which is driven solely by the peer via the backend.
     // Marking them read here would locally fake blue ticks even when the
     // recipient is offline and never saw the message.
-    await (update(messagesTable)
-          ..where((t) => t.chatId.equals(chatId) & t.isMe.equals(false)))
-        .write(
-          MessagesTableCompanion(
-            status: const Value(MessageStatus.read),
-            readAt: Value(DateTime.now()),
-            syncedAt: Value(DateTime.now()),
-          ),
-        );
+    await (update(
+      messagesTable,
+    )..where((t) => t.chatId.equals(chatId) & t.isMe.equals(false))).write(
+      MessagesTableCompanion(
+        status: const Value(MessageStatus.read),
+        readAt: Value(DateTime.now()),
+        syncedAt: Value(DateTime.now()),
+      ),
+    );
   }
 
   /// Absolute paths of any media this device downloaded for [chatId], so the

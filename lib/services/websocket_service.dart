@@ -89,8 +89,7 @@ class SocketService extends ChangeNotifier {
   Stream<Map<String, dynamic>> get reactionStream => _reactionController.stream;
   Stream<Map<String, dynamic>> get statusEventStream =>
       _statusEventController.stream;
-  Stream<Map<String, dynamic>> get presenceStream =>
-      _presenceController.stream;
+  Stream<Map<String, dynamic>> get presenceStream => _presenceController.stream;
   Stream<CallEvent> get callEventStream => _callEventController.stream;
 
   Future<void> connect() async {
@@ -337,6 +336,8 @@ class SocketService extends ChangeNotifier {
 
   void disconnect() {
     _shouldReconnect = false;
+    _activeChatId = null;
+    _lastPresenceHeartbeatAt = null;
     _heartbeatTimer?.cancel();
     _reconnectTimer?.cancel();
     _reconnectTimer = null;

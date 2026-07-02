@@ -22,6 +22,8 @@ enum CallMediaEvent {
   failed,
   remoteJoined,
   remoteLeft,
+  localMuted,
+  localUnmuted,
   localVideoEnabled,
   localVideoDisabled,
   remoteVideoEnabled,

@@ -245,6 +245,8 @@ class AuthViewModel extends ChangeNotifier {
 
   Future<void> logout() async {
     await TokenStorage.clearAll();
+    await DioClient().clearCache();
+    await NotificationService().clearSessionState();
     await MediaStorageService.instance.clearAllMedia();
     await AppDatabase().clearDatabase();
     ApiService.currentUserId = null;

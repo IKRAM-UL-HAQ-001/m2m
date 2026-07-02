@@ -389,7 +389,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     if (chatId == null || chatId.startsWith('new_')) return;
     // Falls back to a direct read in case the cached load (async) hasn't
     // populated _initialSyncState yet, so the freshness skip still applies.
-    final syncState = _initialSyncState ?? await _db.getMessageSyncState(chatId);
+    final syncState =
+        _initialSyncState ?? await _db.getMessageSyncState(chatId);
     final lastRefresh = syncState?.lastRefreshedAt;
     final cacheIsFresh =
         lastRefresh != null &&
@@ -422,10 +423,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       if (!mounted || chatId != _currentChatId) return;
       setState(() {
         _mergeMessages(page.items);
-        if (syncState == null) {
-          _nextHistoryCursor = page.nextCursor;
-          _hasMoreHistory = page.hasMore;
-        }
+        _nextHistoryCursor = page.nextCursor;
+        _hasMoreHistory = page.hasMore;
         _isLoading = false;
       });
       _markCurrentChatRead();

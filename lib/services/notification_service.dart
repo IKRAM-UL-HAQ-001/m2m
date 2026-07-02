@@ -394,9 +394,8 @@ class NotificationService {
     final chatId = data['chat_id']?.toString() ?? data['chat']?.toString();
     final senderId =
         data['sender_id']?.toString() ?? data['sender']?.toString();
-    final senderName = data['sender_name']?.toString() ??
-        data['title']?.toString() ??
-        title;
+    final senderName =
+        data['sender_name']?.toString() ?? data['title']?.toString() ?? title;
 
     // One stable notification per sender (WhatsApp-style): the first message
     // posts a notification, subsequent messages from the same person UPDATE that
@@ -414,8 +413,9 @@ class NotificationService {
 
     // Title shows the sender plus the unread count once more than one is pending,
     // e.g. "Ali (3 new messages)".
-    final displayTitle =
-        count > 1 ? '$senderName ($count new messages)' : senderName;
+    final displayTitle = count > 1
+        ? '$senderName ($count new messages)'
+        : senderName;
     final summaryLine = count > 1 ? '$count new messages' : senderName;
 
     try {
@@ -476,7 +476,10 @@ class NotificationService {
   // both write here so the chat screen can later clear them on open.
   static String _chatNotifKey(String chatId) => 'chat_notif_ids:$chatId';
 
-  Future<void> _recordChatNotification(String chatId, int notificationId) async {
+  Future<void> _recordChatNotification(
+    String chatId,
+    int notificationId,
+  ) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final key = _chatNotifKey(chatId);
@@ -484,9 +487,7 @@ class NotificationService {
       final idStr = notificationId.toString();
       ids.remove(idStr);
       ids.add(idStr);
-      final capped = ids.length > 50
-          ? ids.sublist(ids.length - 50)
-          : ids;
+      final capped = ids.length > 50 ? ids.sublist(ids.length - 50) : ids;
       await prefs.setStringList(key, capped);
     } catch (e) {
       debugPrint('Record chat notification error: $e');
@@ -602,6 +603,35 @@ class NotificationService {
     await _local.cancel(_notificationIdForIncomingCall(callId));
   }
 
+  Future<void> clearSessionState() async {
+    await stopRingtone();
+    _activeChatId = null;
+    _activeChatParticipantId = null;
+    _shownMessageIds.clear();
+    _soundedMessageIds.clear();
+    _shownIncomingCallIds.clear();
+    try {
+      await _setupLocalNotifications();
+      await _local.cancelAll();
+    } catch (e) {
+      debugPrint('Notification cancel all error: $e');
+    }
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final keys = prefs.getKeys().where(
+        (key) =>
+            key == _shownPushMessageIdsKey ||
+            key.startsWith('chat_notif_ids:') ||
+            key.startsWith('notif_group:'),
+      );
+      for (final key in keys.toList()) {
+        await prefs.remove(key);
+      }
+    } catch (e) {
+      debugPrint('Notification session clear error: $e');
+    }
+  }
+
   // A stable notification id per sender (falls back to the chat). Kept inside
   // 0..0x3fffffff so it never collides with the incoming-call id space, which
   // lives at 0x40000000+.
@@ -628,10 +658,12 @@ class NotificationService {
     try {
       final prefs = await SharedPreferences.getInstance();
       final key = _notifGroupKey(groupKey);
-      final lines = <String>[...(prefs.getStringList(key) ?? const <String>[]), line];
+      final lines = <String>[
+        ...(prefs.getStringList(key) ?? const <String>[]),
+        line,
+      ];
       // Inbox style renders at most ~5-7 rows; keep the latest handful.
-      final capped =
-          lines.length > 6 ? lines.sublist(lines.length - 6) : lines;
+      final capped = lines.length > 6 ? lines.sublist(lines.length - 6) : lines;
       await prefs.setStringList(key, capped);
       // The true count (may exceed the displayed lines) lives in its own key.
       final countKey = '$key:count';
