@@ -192,6 +192,15 @@ class ApiService {
     );
   }
 
+  /// Logs out a linked web/companion session. Pass [id] from the phone's
+  /// Linked devices list, or [token] when a web session logs itself out.
+  Future<void> unlinkDevice({int? id, String? token}) async {
+    await _dio.post(
+      '/auth/linked-devices/unlink/',
+      data: {'id': ?id, 'token': ?token},
+    );
+  }
+
   Future<bool> activateLinkToken(String token) async {
     await _dio.post('/auth/activate-link-token/', data: {'token': token});
     return true;

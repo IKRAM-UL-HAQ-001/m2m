@@ -75,6 +75,51 @@ class _LinkedDevicesScreenState extends State<LinkedDevicesScreen> {
     }
   }
 
+  Future<void> _confirmUnlink(Map<String, dynamic> device) async {
+    final name = device['device_name']?.toString() ?? 'this device';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Log out $name?'),
+        content: const Text(
+          'This device will be disconnected and removed from your linked devices.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Log out', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await ApiService().unlinkDevice(
+        id: int.tryParse(device['id']?.toString() ?? ''),
+      );
+      if (!mounted) return;
+      setState(() {
+        _devices.removeWhere((d) => d['id'] == device['id']);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('$name logged out'),
+          backgroundColor: AppColors.primaryColor,
+        ),
+      );
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
   String _formatLinkedAt(String? iso) {
     final time = DateTime.tryParse(iso ?? '')?.toLocal();
     if (time == null) return '';
@@ -193,6 +238,13 @@ class _LinkedDevicesScreenState extends State<LinkedDevicesScreen> {
                         style: TextStyle(
                           fontSize: 12,
                           color: Colors.grey[600],
+                        ),
+                      ),
+                      trailing: TextButton(
+                        onPressed: () => _confirmUnlink(d),
+                        child: const Text(
+                          'Log out',
+                          style: TextStyle(color: Colors.red),
                         ),
                       ),
                     ),

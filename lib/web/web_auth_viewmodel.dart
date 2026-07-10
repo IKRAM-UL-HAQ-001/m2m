@@ -115,6 +115,10 @@ class WebAuthViewModel extends ChangeNotifier {
             }
           }
           await prefs.setBool('isLoggedIn', true);
+          // Remember which link token this browser session came from so
+          // logout can deactivate its record on the server (and it disappears
+          // from the phone's Linked devices list).
+          await prefs.setString('web_link_token', _linkToken!);
           _isAuthenticated = true;
           _linkToken = null;
           timer.cancel();
@@ -130,9 +134,21 @@ class WebAuthViewModel extends ChangeNotifier {
 
   Future<void> logout() async {
     _linkPollingTimer?.cancel();
+    final prefs = await SharedPreferences.getInstance();
+    // Deactivate this browser's session record server-side while our JWT is
+    // still valid, so the phone's Linked devices list stays accurate. Best
+    // effort — a dead server shouldn't block local logout.
+    final linkToken = prefs.getString('web_link_token');
+    if (linkToken != null && linkToken.isNotEmpty) {
+      try {
+        await _apiService.unlinkDevice(token: linkToken);
+      } catch (e) {
+        debugPrint('unlinkDevice on logout failed: $e');
+      }
+      await prefs.remove('web_link_token');
+    }
     await TokenStorage.clearAll();
     await DioClient().clearCache();
-    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('isLoggedIn', false);
     ApiService.currentUserId = null;
     _linkToken = null;
