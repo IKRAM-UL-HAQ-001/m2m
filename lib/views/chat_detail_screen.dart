@@ -1059,7 +1059,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
         widget.chat.receiverId,
         '[File]',
         clientUuid: clientUuid,
-        file: persistedFile,
+        file: XFile(persistedFile.path),
         fileName: originalFileName,
         type: messageType,
         replyTo: _replyingToMessage?.id,

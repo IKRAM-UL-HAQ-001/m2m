@@ -1,7 +1,7 @@
 import 'dart:convert';
-import 'dart:io';
 import 'dart:math';
 
+import 'package:cross_file/cross_file.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
@@ -18,6 +18,7 @@ import '../models/shared_media.dart';
 import '../models/user_status.dart';
 import '../utils/constants.dart';
 import 'dio_client.dart';
+import 'multipart_helper.dart';
 
 class ApiException implements Exception {
   final int statusCode;
@@ -169,9 +170,26 @@ class ApiService {
     return _asMap(response.data);
   }
 
-  Future<String> generateLinkToken() async {
-    final response = await _dio.get('/auth/generate-link-token/');
+  Future<String> generateLinkToken({String? deviceName}) async {
+    final response = await _dio.get(
+      '/auth/generate-link-token/',
+      queryParameters: {
+        if (deviceName != null && deviceName.isNotEmpty)
+          'device_name': deviceName,
+      },
+    );
     return _asMap(response.data)['token'].toString();
+  }
+
+  /// Linked web/companion sessions for the current user (shown on the phone's
+  /// Linked devices screen). Each entry: {id, device_name, linked_at}.
+  Future<List<Map<String, dynamic>>> getLinkedDevices() async {
+    final response = await _dio.get('/auth/linked-devices/');
+    final data = _asMap(response.data);
+    return List<Map<String, dynamic>>.from(
+      (data['devices'] as List? ?? const [])
+          .map((e) => Map<String, dynamic>.from(e as Map)),
+    );
   }
 
   Future<bool> activateLinkToken(String token) async {
@@ -467,8 +485,8 @@ class ApiService {
 
     final data = <String, dynamic>{'name': name};
     if (about != null) data['about'] = about;
-    data['profile_picture'] = await MultipartFile.fromFile(
-      imagePath,
+    data['profile_picture'] = await multipartFromXFile(
+      XFile(imagePath),
       filename: imagePath.split('/').last,
     );
     final formData = FormData.fromMap(data);
@@ -680,7 +698,7 @@ class ApiService {
     String receiverId,
     String text, {
     required String clientUuid,
-    File? file,
+    XFile? file,
     String? fileName,
     String? type,
     String? replyTo,
@@ -694,11 +712,11 @@ class ApiService {
       'client_uuid': clientUuid,
       if (duration != null) 'duration': duration.toStringAsFixed(1),
       'message_type':
-          type ?? (file == null ? 'text' : _detectMessageType(file)),
+          type ?? (file == null ? 'text' : _detectMessageType(file.name)),
       if (file != null)
-        'file': await MultipartFile.fromFile(
-          file.path,
-          filename: fileName ?? file.path.split('/').last,
+        'file': await multipartFromXFile(
+          file,
+          filename: fileName ?? file.name,
         ),
     };
     if (replyTo != null) data['reply_to'] = replyTo;
@@ -717,7 +735,7 @@ class ApiService {
 
   Future<Map<String, dynamic>> sendFile({
     required String chatId,
-    required File file,
+    required XFile file,
     required String messageType,
     double? duration,
     void Function(int, int)? onProgress,
@@ -726,10 +744,7 @@ class ApiService {
       'chat_id': chatId,
       'message_type': messageType,
       if (duration != null) 'duration': duration.toStringAsFixed(1),
-      'file': await MultipartFile.fromFile(
-        file.path,
-        filename: file.path.split('/').last,
-      ),
+      'file': await multipartFromXFile(file, filename: file.name),
     });
     final response = await _uploadDio.post(
       '/api/send/',
@@ -740,8 +755,8 @@ class ApiService {
     return _asMap(response.data);
   }
 
-  String _detectMessageType(File file) {
-    final ext = file.path.split('.').last.toLowerCase();
+  String _detectMessageType(String path) {
+    final ext = path.split('.').last.toLowerCase();
     if (['mp4', 'mov', 'avi', 'mkv', '3gp', 'webm'].contains(ext)) {
       return 'video';
     }
@@ -911,7 +926,7 @@ class ApiService {
   }
 
   Future<UserStatus> createMediaStatus(
-    File file,
+    XFile file,
     String statusType, {
     String privacy = 'all_contacts',
     List<String> userIds = const [],
@@ -921,10 +936,7 @@ class ApiService {
       'status_type': statusType,
       'privacy': privacy,
       if (userIds.isNotEmpty) 'user_ids': userIds.map(int.parse).toList(),
-      'media_file': await MultipartFile.fromFile(
-        file.path,
-        filename: file.path.split('/').last,
-      ),
+      'media_file': await multipartFromXFile(file, filename: file.name),
     });
     final response = await _uploadDio.post(
       '/api/status/create/',

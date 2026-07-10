@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:async';
 
 import 'package:cross_file/cross_file.dart';
@@ -9,18 +8,20 @@ import '../models/user_status.dart';
 import '../services/api_service.dart';
 import '../services/websocket_service.dart';
 
-class StatusViewModel extends ChangeNotifier {
+/// Web-only status/story state. Same API as the mobile StatusViewModel but
+/// without the dart:io local-profile-picture lookup (web has no file cache).
+class WebStatusViewModel extends ChangeNotifier {
   final ApiService _apiService = ApiService();
   final SocketService _socketService = SocketService();
-  StreamSubscription<Map<String, dynamic>>? _statusEventSubscription;
+  StreamSubscription<Map<String, dynamic>>? _statusEventSub;
 
   bool _isLoading = false;
   String? _error;
   List<UserStatus> _myStatuses = [];
   List<StatusGroup> _contactGroups = [];
 
-  StatusViewModel() {
-    _statusEventSubscription = _socketService.statusEventStream.listen((_) {
+  WebStatusViewModel() {
+    _statusEventSub = _socketService.statusEventStream.listen((_) {
       loadStatuses(isSilent: true);
     });
   }
@@ -29,9 +30,9 @@ class StatusViewModel extends ChangeNotifier {
   String? get error => _error;
   List<UserStatus> get myStatuses => _myStatuses;
   List<StatusGroup> get unseenGroups =>
-      _contactGroups.where((group) => group.hasUnseen).toList();
+      _contactGroups.where((g) => g.hasUnseen).toList();
   List<StatusGroup> get seenGroups =>
-      _contactGroups.where((group) => !group.hasUnseen).toList();
+      _contactGroups.where((g) => !g.hasUnseen).toList();
   bool get hasUnseenStatuses => unseenGroups.isNotEmpty;
   bool get hasMyStatus => _myStatuses.isNotEmpty;
 
@@ -39,13 +40,7 @@ class StatusViewModel extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     final id = prefs.getString('user_id') ?? ApiService.currentUserId ?? 'me';
     final name = prefs.getString('user_name') ?? 'My status';
-    final localPicture = prefs.getString('user_profile_picture_local');
-    final picture =
-        localPicture != null &&
-            localPicture.isNotEmpty &&
-            File(localPicture).existsSync()
-        ? localPicture
-        : prefs.getString('user_profile_picture');
+    final picture = prefs.getString('user_profile_picture');
     return StatusGroup(
       owner: StatusOwner(
         id: id,
@@ -54,15 +49,9 @@ class StatusViewModel extends ChangeNotifier {
       ),
       statuses: _myStatuses,
       unviewedCount: 0,
-      latestStatusTime: _myStatuses.isEmpty
-          ? null
-          : _myStatuses.first.createdAt,
+      latestStatusTime: _myStatuses.isEmpty ? null : _myStatuses.first.createdAt,
       isMine: true,
     );
-  }
-
-  void refreshLocalProfile() {
-    notifyListeners();
   }
 
   Future<void> loadStatuses({bool isSilent = false}) async {
@@ -81,9 +70,7 @@ class StatusViewModel extends ChangeNotifier {
     } catch (e) {
       _error = e.toString();
     } finally {
-      if (!isSilent) {
-        _isLoading = false;
-      }
+      if (!isSilent) _isLoading = false;
       notifyListeners();
     }
   }
@@ -106,13 +93,13 @@ class StatusViewModel extends ChangeNotifier {
   }
 
   Future<void> createMediaStatus(
-    File file,
+    XFile file,
     String statusType, {
     String privacy = 'all_contacts',
     List<String> userIds = const [],
   }) async {
     await _apiService.createMediaStatus(
-      XFile(file.path),
+      file,
       statusType,
       privacy: privacy,
       userIds: userIds,
@@ -140,7 +127,7 @@ class StatusViewModel extends ChangeNotifier {
           viewCount: status.viewCount,
         );
       }).toList();
-      final unseen = updated.where((status) => !status.isViewed).length;
+      final unseen = updated.where((s) => !s.isViewed).length;
       return group.copyWith(statuses: updated, unviewedCount: unseen);
     }).toList();
     notifyListeners();
@@ -152,13 +139,13 @@ class StatusViewModel extends ChangeNotifier {
 
   Future<void> deleteStatus(String statusId) async {
     await _apiService.deleteStatus(statusId);
-    _myStatuses = _myStatuses.where((status) => status.id != statusId).toList();
+    _myStatuses = _myStatuses.where((s) => s.id != statusId).toList();
     notifyListeners();
   }
 
   @override
   void dispose() {
-    _statusEventSubscription?.cancel();
+    _statusEventSub?.cancel();
     super.dispose();
   }
 }
