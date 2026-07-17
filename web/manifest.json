@@ -1,12 +1,12 @@
 {
-    "name": "m2m",
-    "short_name": "m2m",
+    "name": "M2M Web",
+    "short_name": "M2M",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
-    "orientation": "portrait-primary",
+    "background_color": "#9B10A3",
+    "theme_color": "#9B10A3",
+    "description": "M2M Web — send and receive messages from your browser.",
+    "orientation": "any",
     "prefer_related_applications": false,
     "icons": [
         {

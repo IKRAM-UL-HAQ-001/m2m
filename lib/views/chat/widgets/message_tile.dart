@@ -25,6 +25,8 @@ class MessageTile extends StatelessWidget {
     required this.onDownloadImage,
     required this.onOpenFile,
     required this.onShowReactionUsers,
+    this.onDownloadFile,
+    this.isDownloadingFile = false,
     this.isSelected = false,
     this.isSelectionMode = false,
     this.onTap,
@@ -40,6 +42,12 @@ class MessageTile extends StatelessWidget {
   final ValueChanged<String> onDownloadImage;
   final ValueChanged<String> onOpenFile;
   final void Function(String emoji, List<String> userIds) onShowReactionUsers;
+
+  /// WhatsApp-style: documents that aren't on-device yet are downloaded via
+  /// this callback (then opened natively) instead of being launched in the
+  /// browser. When null, tapping falls back to [onOpenFile] with the URL.
+  final ValueChanged<Message>? onDownloadFile;
+  final bool isDownloadingFile;
   final bool isSelected;
   final bool isSelectionMode;
   final VoidCallback? onTap;
@@ -646,8 +654,25 @@ class MessageTile extends StatelessWidget {
             .last
             .split('?')
             .first;
+    final localPath = message.localFilePath;
+    final hasLocal =
+        localPath != null && localPath.isNotEmpty && File(localPath).existsSync();
+
+    // WhatsApp behaviour: not on device yet -> tap downloads it (spinner while
+    // in flight), on device -> tap opens with the system's default app.
+    final VoidCallback? onTapFile;
+    if (isDownloadingFile) {
+      onTapFile = null;
+    } else if (hasLocal) {
+      onTapFile = () => onOpenFile(localPath);
+    } else if (onDownloadFile != null) {
+      onTapFile = () => onDownloadFile!(message);
+    } else {
+      onTapFile = () => onOpenFile(message.fileUrl ?? '');
+    }
+
     return InkWell(
-      onTap: () => onOpenFile(message.localFilePath ?? message.fileUrl ?? ''),
+      onTap: onTapFile,
       borderRadius: BorderRadius.circular(8),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -676,6 +701,28 @@ class MessageTile extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
+            if (isDownloadingFile) ...[
+              const SizedBox(width: 8),
+              const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ] else if (!hasLocal) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.all(3),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: AppColors.primaryColor),
+                ),
+                child: const Icon(
+                  Icons.download,
+                  size: 16,
+                  color: AppColors.primaryColor,
+                ),
+              ),
+            ],
           ],
         ),
       ),

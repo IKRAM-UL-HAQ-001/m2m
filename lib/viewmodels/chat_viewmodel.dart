@@ -148,7 +148,11 @@ class ChatViewModel extends ChangeNotifier {
     // so stop suppressing it locally and let it reappear in the list.
     _deletedChatIds.remove(message.chatId);
     unawaited(_db.upsertMessage(message));
-    if (!message.isMe && message.type != 'text') {
+    // Documents deliberately excluded: WhatsApp-style, they download on tap
+    // (chat screen shows a download button) instead of auto-downloading.
+    if (!message.isMe &&
+        message.type != 'text' &&
+        message.type != 'document') {
       MediaStorageService.instance.cacheMessagesInBackground(
         [message],
         onCached: (cachedMessage, path) {

@@ -15,7 +15,6 @@ import 'package:open_filex/open_filex.dart';
 import 'package:provider/provider.dart';
 import 'package:record/record.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 
 import '../models/chat.dart';
@@ -100,6 +99,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   bool _hasNotifiedTyping = false;
 
   Set<String> _downloadedUrls = {};
+  final Set<String> _downloadingFileIds = {};
   String? _currentChatId;
   MessageSyncStateEntity? _initialSyncState;
   late final ChatViewModel _chatViewModel;
@@ -529,8 +529,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   }
 
   void _cacheMediaMessages(Iterable<Message> messages) {
+    // WhatsApp-style: documents are NOT auto-downloaded — the bubble shows a
+    // download button and _downloadFileAndOpen fetches on tap. Auto-cache only
+    // the media that renders inline (images/videos/voice notes).
+    final autoCacheable = messages.where(
+      (m) => m.type == 'image' || m.type == 'video' || m.type == 'audio',
+    );
     MediaStorageService.instance.cacheMessagesInBackground(
-      messages,
+      autoCacheable,
       onCached: (message, path) async {
         await _db.updateMessageLocalFilePath(message.id, path);
         if (!mounted || message.chatId != _currentChatId) return;
@@ -1236,6 +1242,35 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     );
   }
 
+  /// WhatsApp-style document flow: download to app storage first, remember the
+  /// local path, then open with the system's default app for that file type —
+  /// never the browser.
+  Future<void> _downloadFileAndOpen(Message message) async {
+    if (_downloadingFileIds.contains(message.id)) return;
+    setState(() => _downloadingFileIds.add(message.id));
+    String? path;
+    try {
+      path = await MediaStorageService.instance.cacheMessage(message);
+    } finally {
+      if (mounted) setState(() => _downloadingFileIds.remove(message.id));
+    }
+    if (!mounted) return;
+    if (path == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Download failed — check your connection')),
+      );
+      return;
+    }
+    await _db.updateMessageLocalFilePath(message.id, path);
+    setState(() {
+      final index = _messages.indexWhere((m) => m.id == message.id);
+      if (index != -1) {
+        _messages[index] = _messages[index].copyWith(localFilePath: path);
+      }
+    });
+    await _openFile(path);
+  }
+
   Future<void> _openFile(String pathOrUrl) async {
     final localFile = File(pathOrUrl);
     if (localFile.existsSync()) {
@@ -1248,10 +1283,22 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       }
       return;
     }
-    final uri = Uri.parse(ApiService.mediaUrl(pathOrUrl));
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } else if (mounted) {
+    // Not on device: never hand the URL to the browser (WhatsApp-style).
+    // Find the owning message and run the download-then-open-natively flow.
+    final index = _messages.indexWhere(
+      (m) =>
+          (m.localFilePath != null && m.localFilePath == pathOrUrl) ||
+          (m.fileUrl != null &&
+              m.fileUrl!.isNotEmpty &&
+              (m.fileUrl == pathOrUrl ||
+                  ApiService.mediaUrl(m.fileUrl) == pathOrUrl ||
+                  pathOrUrl.endsWith(m.fileUrl!))),
+    );
+    if (index != -1) {
+      await _downloadFileAndOpen(_messages[index]);
+      return;
+    }
+    if (mounted) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Could not open file')));
@@ -2052,6 +2099,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       onDownloadImage: _downloadAndSaveImage,
       onOpenFile: _openFile,
       onShowReactionUsers: _showReactionUsers,
+      onDownloadFile: _downloadFileAndOpen,
+      downloadingFileIds: _downloadingFileIds,
       selectedMessageIds: _selectedMessageIds,
       isSelectionMode: _isSelectionMode,
       onTapMessage: _isSelectionMode ? _toggleMessageSelection : null,

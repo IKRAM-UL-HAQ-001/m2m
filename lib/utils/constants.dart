@@ -10,7 +10,7 @@ class AppColors {
 }
 
 class AppConstants {
-  static const String _defaultServerIp = '13.207.193.99';
+  static const String _defaultServerIp = 'backendserver.msg2msg.com';
   static const String _serverIpOverride = String.fromEnvironment('SERVER_IP');
   static const String _serverBaseUrlOverride = String.fromEnvironment(
     'SERVER_BASE_URL',
@@ -38,7 +38,10 @@ class AppConstants {
     if (_authBaseUrlOverride.isNotEmpty) {
       return _stripPathSuffix(_authBaseUrlOverride, '/auth');
     }
-    return 'http://$serverIp';
+    // Backend is HTTPS-only (plain http returns a 301 redirect that Dio does
+    // not follow on POST). Default to https so the mobile build talks to the
+    // secure endpoint directly; the WS URL is derived as wss:// below.
+    return 'https://$serverIp';
   }
 
   static String get apiBaseUrl => _apiBaseUrlOverride.isNotEmpty

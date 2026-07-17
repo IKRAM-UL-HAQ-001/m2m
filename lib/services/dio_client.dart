@@ -34,8 +34,28 @@ class TokenStorage {
   static Future<void> _init() async {
     if (_initialized) return;
     final prefs = await _preferences();
-    final secureAccess = await _secureStorage.read(key: _accessKey);
-    final secureRefresh = await _secureStorage.read(key: _refreshKey);
+
+    String? secureAccess;
+    String? secureRefresh;
+    try {
+      secureAccess = await _secureStorage.read(key: _accessKey);
+      secureRefresh = await _secureStorage.read(key: _refreshKey);
+    } catch (e) {
+      // The keystore-backed keyset can become undecryptable
+      // (BAD_DECRYPT / AEADBadTagException) after an app reinstall, OS update
+      // or backup restore. Wipe the corrupt secure store and continue as
+      // logged-out instead of crashing startup — the user re-links/logs in.
+      debugPrint('Secure storage unreadable, resetting: $e');
+      try {
+        await _secureStorage.deleteAll();
+      } catch (e2) {
+        debugPrint('Secure storage reset failed: $e2');
+      }
+      _accessToken = null;
+      _refreshToken = null;
+      _initialized = true;
+      return;
+    }
 
     if ((secureAccess?.isNotEmpty ?? false) ||
         (secureRefresh?.isNotEmpty ?? false)) {

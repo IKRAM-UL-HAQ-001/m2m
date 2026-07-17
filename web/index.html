@@ -18,12 +18,14 @@
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="M2M Web - Messaging and communication platform.">
+  <meta name="description" content="M2M Web - send and receive messages from your browser.">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#9B10A3">
 
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="m2m">
+  <meta name="apple-mobile-web-app-title" content="M2M">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
   <!-- Favicon -->
@@ -31,8 +33,81 @@
 
   <title>M2M Web</title>
   <link rel="manifest" href="manifest.json">
+
+  <style>
+    /* Instant splash: painted by the browser immediately, long before the
+       Flutter engine (main.dart.js + CanvasKit) finishes downloading, so the
+       user never stares at a blank white page. Removed on flutter-first-frame. */
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background: #ffffff;
+    }
+    #m2m-splash {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: #ffffff;
+      z-index: 9999;
+      transition: opacity 0.25s ease-out;
+    }
+    #m2m-splash img {
+      width: 96px;
+      height: 96px;
+      border-radius: 20px;
+    }
+    #m2m-splash .m2m-title {
+      margin-top: 18px;
+      font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-size: 22px;
+      font-weight: 300;
+      color: #444;
+      letter-spacing: 0.5px;
+    }
+    #m2m-splash .m2m-spinner {
+      margin-top: 26px;
+      width: 30px;
+      height: 30px;
+      border: 3px solid #eadcf0;
+      border-top-color: #9B10A3;
+      border-radius: 50%;
+      animation: m2m-spin 0.9s linear infinite;
+    }
+    @keyframes m2m-spin {
+      to { transform: rotate(360deg); }
+    }
+    #m2m-splash .m2m-footer {
+      position: absolute;
+      bottom: 28px;
+      font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-size: 12px;
+      color: #9aa0a6;
+    }
+  </style>
 </head>
 <body>
+  <div id="m2m-splash">
+    <img src="icons/Icon-192.png" alt="M2M">
+    <div class="m2m-title">M2M Web</div>
+    <div class="m2m-spinner"></div>
+    <div class="m2m-footer">&#128274; End-to-end encrypted</div>
+  </div>
+
+  <script>
+    // Fade the splash out as soon as Flutter paints its first frame.
+    window.addEventListener('flutter-first-frame', function () {
+      var splash = document.getElementById('m2m-splash');
+      if (!splash) return;
+      splash.style.opacity = '0';
+      setTimeout(function () {
+        if (splash.parentNode) splash.parentNode.removeChild(splash);
+      }, 300);
+    });
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

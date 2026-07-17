@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:record/record.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models/chat.dart';
@@ -51,6 +52,10 @@ class _WebChatViewState extends State<WebChatView> {
   String? _hoveredId;
   final Set<String> _selectedIds = {};
   bool get _isSelectionMode => _selectedIds.isNotEmpty;
+  final AudioRecorder _recorder = AudioRecorder();
+  bool _isRecordingVoice = false;
+  int _recordSeconds = 0;
+  Timer? _recordTimer;
   Timer? _typingClearTimer;
   Timer? _typingDebounce;
   Timer? _highlightTimer;
@@ -383,10 +388,84 @@ class _WebChatViewState extends State<WebChatView> {
     );
   }
 
+  // ── voice recording (WhatsApp-Web style) ─────────────────────
+
+  Future<void> _startVoiceRecording() async {
+    try {
+      if (!await _recorder.hasPermission()) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Microphone permission needed — allow it in the browser',
+              ),
+            ),
+          );
+        }
+        return;
+      }
+      // Browsers record opus (webm container); AAC isn't available on web.
+      await _recorder.start(
+        const RecordConfig(encoder: AudioEncoder.opus, bitRate: 128000),
+        path: '',
+      );
+      if (!mounted) return;
+      setState(() {
+        _isRecordingVoice = true;
+        _recordSeconds = 0;
+      });
+      _recordTimer?.cancel();
+      _recordTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(() => _recordSeconds++);
+      });
+    } catch (e) {
+      debugPrint('web voice record start failed: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not start recording')),
+        );
+      }
+    }
+  }
+
+  Future<void> _cancelVoiceRecording() async {
+    _recordTimer?.cancel();
+    try {
+      await _recorder.stop();
+    } catch (_) {}
+    if (mounted) setState(() => _isRecordingVoice = false);
+  }
+
+  Future<void> _stopAndSendVoice() async {
+    _recordTimer?.cancel();
+    final seconds = _recordSeconds;
+    String? blobUrl;
+    try {
+      blobUrl = await _recorder.stop();
+    } catch (e) {
+      debugPrint('web voice record stop failed: $e');
+    }
+    if (mounted) setState(() => _isRecordingVoice = false);
+    if (blobUrl == null || blobUrl.isEmpty || seconds < 1) return;
+    await _sendAttachment(
+      XFile(blobUrl),
+      'audio',
+      fileName: 'voice_${DateTime.now().millisecondsSinceEpoch}.webm',
+      duration: seconds.toDouble(),
+    );
+  }
+
+  String _formatRecordTime(int seconds) {
+    final m = (seconds ~/ 60).toString();
+    final s = (seconds % 60).toString().padLeft(2, '0');
+    return '$m:$s';
+  }
+
   Future<void> _sendAttachment(
     XFile file,
     String type, {
     String? fileName,
+    double? duration,
   }) async {
     final clientUuid = ApiService.createClientUuid();
     final replyId = _replyingTo?.id;
@@ -424,6 +503,7 @@ class _WebChatViewState extends State<WebChatView> {
         fileName: fileName ?? file.name,
         type: type,
         replyTo: replyId,
+        duration: duration,
       );
       if (mounted) setState(() => _upsert(message));
     } catch (e) {
@@ -740,6 +820,8 @@ class _WebChatViewState extends State<WebChatView> {
     _typingClearTimer?.cancel();
     _typingDebounce?.cancel();
     _highlightTimer?.cancel();
+    _recordTimer?.cancel();
+    _recorder.dispose();
     _controller.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -1302,6 +1384,7 @@ class _WebChatViewState extends State<WebChatView> {
   }
 
   Widget _composer() {
+    if (_isRecordingVoice) return _recordingBar();
     return Container(
       color: Colors.grey[100],
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -1346,11 +1429,58 @@ class _WebChatViewState extends State<WebChatView> {
           ),
           const SizedBox(width: 8),
           IconButton(
+            tooltip: _showSend ? 'Send' : 'Record voice message',
             icon: Icon(
               _showSend ? Icons.send : Icons.mic,
               color: AppColors.primaryColor,
             ),
-            onPressed: _showSend ? _send : null,
+            onPressed: _showSend ? _send : _startVoiceRecording,
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// WhatsApp-Web-style recording strip: trash to cancel, blinking red dot
+  /// with elapsed time, and a send button to stop-and-send.
+  Widget _recordingBar() {
+    return Container(
+      color: Colors.grey[100],
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Row(
+        children: [
+          IconButton(
+            tooltip: 'Cancel',
+            icon: Icon(Icons.delete_outline, color: Colors.grey[700]),
+            onPressed: _cancelVoiceRecording,
+          ),
+          const Spacer(),
+          _BlinkingDot(),
+          const SizedBox(width: 8),
+          Text(
+            _formatRecordTime(_recordSeconds),
+            style: TextStyle(
+              fontSize: 16,
+              color: Colors.grey[800],
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+          const SizedBox(width: 16),
+          Text(
+            'Recording…',
+            style: TextStyle(color: Colors.grey[600], fontSize: 13),
+          ),
+          const Spacer(),
+          Container(
+            decoration: const BoxDecoration(
+              color: AppColors.primaryColor,
+              shape: BoxShape.circle,
+            ),
+            child: IconButton(
+              tooltip: 'Send voice message',
+              icon: const Icon(Icons.send, color: Colors.white, size: 20),
+              onPressed: _stopAndSendVoice,
+            ),
           ),
         ],
       ),
@@ -1384,5 +1514,40 @@ class _WebChatViewState extends State<WebChatView> {
       '🎤 Voice message',
     };
     return placeholders.contains(text.trim());
+  }
+}
+
+/// Pulsing red dot shown while a voice message is being recorded.
+class _BlinkingDot extends StatefulWidget {
+  @override
+  State<_BlinkingDot> createState() => _BlinkingDotState();
+}
+
+class _BlinkingDotState extends State<_BlinkingDot>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 700),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: Tween<double>(begin: 0.25, end: 1).animate(_controller),
+      child: Container(
+        width: 12,
+        height: 12,
+        decoration: const BoxDecoration(
+          color: Colors.red,
+          shape: BoxShape.circle,
+        ),
+      ),
+    );
   }
 }
