@@ -14,7 +14,7 @@ import 'api_service.dart';
 /// over other apps" permission is granted), plays a single managed ringtone,
 /// and works from a terminated app with no Flutter boot.
 ///
-/// It is the SOLE ringtone owner for incoming calls on Android — the old
+/// It is the SOLE ringtone owner for incoming calls on Android  the old
 /// notification-channel ringtone and the in-app `IncomingCallScreen` ringtone
 /// must NOT run alongside it, or the bell doubles again.
 ///
@@ -229,7 +229,7 @@ class CallkitService {
     } catch (e) {
       debugPrint('CallkitService full-screen permission check failed: $e');
     }
-    // "Display over other apps" — what lets the native call screen launch over
+    // "Display over other apps"  what lets the native call screen launch over
     // whatever is on screen while the phone is unlocked. Requesting it sends the
     // user to a system settings toggle; only do so when not already granted.
     try {

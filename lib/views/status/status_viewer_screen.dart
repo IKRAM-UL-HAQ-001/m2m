@@ -25,7 +25,7 @@ class _StatusViewerScreenState extends State<StatusViewerScreen> {
   late List<UserStatus> _statuses;
   int _currentIndex = 0;
   // Story progress is a notifier so the 50ms ticker repaints only the thin
-  // progress bar via a ValueListenableBuilder — not the whole full-screen
+  // progress bar via a ValueListenableBuilder  not the whole full-screen
   // image/video viewer (which a setState every 50ms was doing = 20 rebuilds/s).
   final ValueNotifier<double> _progress = ValueNotifier<double>(0);
   bool _isPaused = false;
@@ -69,7 +69,7 @@ class _StatusViewerScreenState extends State<StatusViewerScreen> {
     }
   }
 
-  /// True when a reply was in progress and got dismissed — used so a tap on the
+  /// True when a reply was in progress and got dismissed  used so a tap on the
   /// story area closes the keyboard instead of advancing to the next status.
   bool _dismissReplyIfOpen() {
     if (_replyFocusNode.hasFocus) {
@@ -160,7 +160,9 @@ class _StatusViewerScreenState extends State<StatusViewerScreen> {
                               ? progress
                               : 0,
                           backgroundColor: Colors.white38,
-                          valueColor: const AlwaysStoppedAnimation(Colors.white),
+                          valueColor: const AlwaysStoppedAnimation(
+                            Colors.white,
+                          ),
                           minHeight: 2,
                         ),
                       ),
@@ -298,7 +300,7 @@ class _StatusViewerScreenState extends State<StatusViewerScreen> {
                 right: 16,
                 // Lift the reply bar above the keyboard. With
                 // resizeToAvoidBottomInset:false this is the only thing that
-                // moves when the keyboard animates — the story behind stays put.
+                // moves when the keyboard animates  the story behind stays put.
                 bottom: MediaQuery.of(context).viewInsets.bottom + 12,
                 child: _buildReplyBar(),
               ),
@@ -456,7 +458,7 @@ class _StatusViewerScreenState extends State<StatusViewerScreen> {
         : 5.0;
     _timer = Timer.periodic(const Duration(milliseconds: 50), (_) {
       if (!mounted || _isPaused) return;
-      // Updates the notifier only — repaints the progress bar, not the screen.
+      // Updates the notifier only  repaints the progress bar, not the screen.
       _progress.value += 0.05 / duration;
       if (_progress.value >= 1) {
         _nextStatus();

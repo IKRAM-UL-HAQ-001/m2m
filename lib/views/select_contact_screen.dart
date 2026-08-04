@@ -18,7 +18,7 @@ import 'chat_detail_screen.dart';
 
 /// How the contact picker behaves when a contact is tapped.
 enum ContactPickerMode {
-  /// Open the chat with the contact (default — opened from the Chats tab).
+  /// Open the chat with the contact (default  opened from the Chats tab).
   chat,
 
   /// Start an audio/video call with the contact (opened from the Calls tab).
@@ -119,8 +119,9 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
       if (!mounted) return;
       setState(() {
         // Keep showing cached contacts; only surface the error on a cold load.
-        _errorMessage =
-            (_onAppContacts.isEmpty && _offAppContacts.isEmpty) ? e.message : null;
+        _errorMessage = (_onAppContacts.isEmpty && _offAppContacts.isEmpty)
+            ? e.message
+            : null;
         _isLoading = false;
         _isRefreshing = false;
       });

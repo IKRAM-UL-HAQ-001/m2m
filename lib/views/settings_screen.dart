@@ -27,8 +27,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isUpdatingProfilePicture = false;
 
   // Memoized result of File(_profilePictureUrl).existsSync(). Computing it
-  // inside build() ran synchronous disk I/O on the UI thread on every frame —
-  // including every frame of a dialog's keyboard animation — which was the main
+  // inside build() ran synchronous disk I/O on the UI thread on every frame
+  // including every frame of a dialog's keyboard animation  which was the main
   // source of the laggy keyboard. We recompute only when the path changes.
   String _resolvedPicturePath = '';
   bool _resolvedIsLocalPicture = false;

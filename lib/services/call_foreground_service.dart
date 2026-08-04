@@ -11,7 +11,7 @@ class CallForegroundService {
 
   // _running = the service's actual state; _desiredRunning = the latest target.
   // start()/stop() are fired with unawaited() on rapid state changes
-  // (connecting -> active -> failed), so they MUST be serialized — otherwise an
+  // (connecting -> active -> failed), so they MUST be serialized  otherwise an
   // in-flight start() can finish *after* a stop() that already bailed on the
   // flag, leaving the foreground service (and its notification) leaked. Every
   // call enqueues onto _operation and a single reconcile loop converges actual
@@ -53,7 +53,7 @@ class CallForegroundService {
           'the ongoing call notification on Android 13+',
         );
       }
-      // The call may have ended while we awaited permissions — don't start a
+      // The call may have ended while we awaited permissions  don't start a
       // service nobody wants anymore.
       if (!_desiredRunning) return;
       try {

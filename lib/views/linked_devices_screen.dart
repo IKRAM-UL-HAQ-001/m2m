@@ -33,7 +33,7 @@ class _LinkedDevicesScreenState extends State<LinkedDevicesScreen> {
         });
       }
     } catch (_) {
-      // Older backend without the endpoint, or transient failure — just hide
+      // Older backend without the endpoint, or transient failure  just hide
       // the list section rather than breaking the screen.
       if (mounted) setState(() => _loadingDevices = false);
     }
@@ -222,8 +222,9 @@ class _LinkedDevicesScreenState extends State<LinkedDevicesScreen> {
                   ..._devices.map(
                     (d) => ListTile(
                       leading: CircleAvatar(
-                        backgroundColor:
-                            AppColors.primaryColor.withValues(alpha: 0.1),
+                        backgroundColor: AppColors.primaryColor.withValues(
+                          alpha: 0.1,
+                        ),
                         child: const Icon(
                           Icons.laptop,
                           color: AppColors.primaryColor,
@@ -235,10 +236,7 @@ class _LinkedDevicesScreenState extends State<LinkedDevicesScreen> {
                       ),
                       subtitle: Text(
                         'Linked ${_formatLinkedAt(d['linked_at']?.toString())}',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey[600],
-                        ),
+                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                       ),
                       trailing: TextButton(
                         onPressed: () => _confirmUnlink(d),

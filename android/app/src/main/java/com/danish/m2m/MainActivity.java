@@ -26,11 +26,11 @@ public class MainActivity extends FlutterActivity {
     // When an incoming-call FCM push fires the notification's full-screen intent
     // while the device is locked or the screen is off, Android launches THIS
     // activity. For the call screen to actually appear over the keyguard (instead
-    // of staying hidden behind it — which left the user seeing only the heads-up
+    // of staying hidden behind it  which left the user seeing only the heads-up
     // notification) the activity must declare itself show-when-locked and ask the
     // system to turn the screen on. We do this in onCreate so it takes effect at
     // launch time, before Flutter boots. This does NOT unlock the device or expose
-    // secured content — it only lets our own window render above the lock screen,
+    // secured content  it only lets our own window render above the lock screen,
     // exactly like a phone dialer / WhatsApp call screen.
     @Override
     protected void onCreate(Bundle savedInstanceState) {

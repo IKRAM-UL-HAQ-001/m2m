@@ -10,14 +10,14 @@ class Responsive {
   static void init(BuildContext context) {
     // Depend ONLY on the fields we actually read (size, padding, textScaler).
     // Using MediaQuery.of(context) here would subscribe the calling widget to
-    // the *entire* MediaQueryData — including viewInsets, which changes on every
+    // the *entire* MediaQueryData  including viewInsets, which changes on every
     // frame of the keyboard open/close animation. That makes the whole screen
     // rebuild ~60x while the keyboard slides in, causing visible jank.
     // The granular *Of(context) accessors only notify when their own field changes.
     //
     // We read viewPadding (NOT padding) for the status/nav-bar insets: `padding`
     // is `viewPadding` minus `viewInsets`, so its bottom collapses to 0 as the
-    // keyboard crosses the nav bar — which would still rebuild the screen every
+    // keyboard crosses the nav bar  which would still rebuild the screen every
     // keyboard frame. `viewPadding` is the physical inset and stays constant
     // while the keyboard animates, so the screen no longer rebuilds with it.
     final Size size = MediaQuery.sizeOf(context);

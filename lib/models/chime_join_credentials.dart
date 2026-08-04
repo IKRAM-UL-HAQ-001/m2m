@@ -1,7 +1,7 @@
 /// Credentials returned by the backend `/api/calls/<id>/join/` endpoint
 /// when the call provider is Amazon Chime.
 ///
-/// The Flutter side never holds AWS keys — only the opaque meeting/attendee
+/// The Flutter side never holds AWS keys  only the opaque meeting/attendee
 /// JSON blobs needed by the native Chime SDK.
 class ChimeJoinCredentials {
   final int callId;
@@ -38,10 +38,6 @@ class ChimeJoinCredentials {
 
   /// Serialise to a map suitable for passing over the platform channel.
   Map<String, dynamic> toChannelMap() {
-    return {
-      'callId': callId,
-      'meeting': meeting,
-      'attendee': attendee,
-    };
+    return {'callId': callId, 'meeting': meeting, 'attendee': attendee};
   }
 }

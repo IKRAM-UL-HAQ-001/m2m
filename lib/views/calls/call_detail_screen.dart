@@ -49,10 +49,7 @@ class CallDetailScreen extends StatelessWidget {
           Center(
             child: Text(
               participant.name,
-              style: const TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.w600,
-              ),
+              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w600),
             ),
           ),
           if (participant.phone.isNotEmpty) ...[
@@ -104,11 +101,11 @@ class CallDetailScreen extends StatelessWidget {
           const Divider(height: 1),
 
           _DetailRow(
-            icon: call.callType == CallType.video
-                ? Icons.videocam
-                : Icons.call,
+            icon: call.callType == CallType.video ? Icons.videocam : Icons.call,
             label: 'Call type',
-            value: call.callType == CallType.video ? 'Video call' : 'Audio call',
+            value: call.callType == CallType.video
+                ? 'Video call'
+                : 'Audio call',
           ),
           if (time != null)
             _DetailRow(
@@ -125,7 +122,7 @@ class CallDetailScreen extends StatelessWidget {
           _DetailRow(
             icon: Icons.timer_outlined,
             label: 'Duration',
-            value: duration.isEmpty ? '—' : duration,
+            value: duration.isEmpty ? '' : duration,
           ),
           if (call.startedAt != null)
             _DetailRow(
@@ -175,7 +172,10 @@ class _DetailRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListTile(
       leading: Icon(icon, color: AppColors.primaryColor),
-      title: Text(label, style: TextStyle(color: Colors.grey[600], fontSize: 13)),
+      title: Text(
+        label,
+        style: TextStyle(color: Colors.grey[600], fontSize: 13),
+      ),
       subtitle: Text(
         value,
         style: const TextStyle(

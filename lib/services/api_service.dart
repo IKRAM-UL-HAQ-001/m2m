@@ -187,8 +187,9 @@ class ApiService {
     final response = await _dio.get('/auth/linked-devices/');
     final data = _asMap(response.data);
     return List<Map<String, dynamic>>.from(
-      (data['devices'] as List? ?? const [])
-          .map((e) => Map<String, dynamic>.from(e as Map)),
+      (data['devices'] as List? ?? const []).map(
+        (e) => Map<String, dynamic>.from(e as Map),
+      ),
     );
   }
 
@@ -588,7 +589,7 @@ class ApiService {
 
   /// Keep-alive ping while in an active call. Refreshes the call's updated_at
   /// on the server so the stale-call cleanup task does not force-end a healthy
-  /// long-running call (~3 min) — media flows through Chime, so nothing else
+  /// long-running call (~3 min)  media flows through Chime, so nothing else
   /// touches the call row. Best-effort: never throws.
   Future<void> callHeartbeat(int callId) async {
     if (callId <= 0) return;
@@ -602,7 +603,7 @@ class ApiService {
 
   /// Best-effort "this device is ringing" ack over HTTP. Unlike the WebSocket
   /// ack, this works even when the app was just cold-launched from a call push
-  /// and the socket isn't connected yet. Never throws — if it fails, the caller
+  /// and the socket isn't connected yet. Never throws  if it fails, the caller
   /// simply stays on "Calling...". Ensures the auth token is loaded first so it
   /// works from a freshly-started isolate.
   Future<void> markCallRinging(int callId) async {
@@ -723,10 +724,7 @@ class ApiService {
       'message_type':
           type ?? (file == null ? 'text' : _detectMessageType(file.name)),
       if (file != null)
-        'file': await multipartFromXFile(
-          file,
-          filename: fileName ?? file.name,
-        ),
+        'file': await multipartFromXFile(file, filename: fileName ?? file.name),
     };
     if (replyTo != null) data['reply_to'] = replyTo;
     // Sent as a JSON string; the backend parses it into the status_reply field.

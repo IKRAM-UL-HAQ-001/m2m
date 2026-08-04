@@ -172,7 +172,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       // right after entering the chat, it competes with the keyboard's resize
       // animation on the same UI-thread frames and the keyboard appears to open
       // slowly. Cached messages are already painted, so push this one-time
-      // refresh (and the read-receipt) just past that first-tap window — it's
+      // refresh (and the read-receipt) just past that first-tap window  it's
       // imperceptible for freshness but keeps the keyboard open instant.
       _deferredRefreshTimer = Timer(const Duration(milliseconds: 500), () {
         if (!mounted) return;
@@ -204,7 +204,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     });
     // Presence arrives live over the socket (presenceStream above). We only do
     // a single seed fetch on open to show the current state immediately; no
-    // periodic polling — that was hitting the backend every 10s and merely
+    // periodic polling  that was hitting the backend every 10s and merely
     // duplicating what the socket already pushes.
     unawaited(_pollPresence());
   }
@@ -529,7 +529,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   }
 
   void _cacheMediaMessages(Iterable<Message> messages) {
-    // WhatsApp-style: documents are NOT auto-downloaded — the bubble shows a
+    // WhatsApp-style: documents are NOT auto-downloaded  the bubble shows a
     // download button and _downloadFileAndOpen fetches on tap. Auto-cache only
     // the media that renders inline (images/videos/voice notes).
     final autoCacheable = messages.where(
@@ -1243,7 +1243,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   }
 
   /// WhatsApp-style document flow: download to app storage first, remember the
-  /// local path, then open with the system's default app for that file type —
+  /// local path, then open with the system's default app for that file type
   /// never the browser.
   Future<void> _downloadFileAndOpen(Message message) async {
     if (_downloadingFileIds.contains(message.id)) return;
@@ -1257,7 +1257,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     if (!mounted) return;
     if (path == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Download failed — check your connection')),
+        const SnackBar(content: Text('Download failed  check your connection')),
       );
       return;
     }
@@ -1616,7 +1616,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   }
 
   Future<void> _deleteMessage(Message message, String deleteType) async {
-    // Pending/failed messages only have a UUID id — they were never confirmed by
+    // Pending/failed messages only have a UUID id  they were never confirmed by
     // the server, so skip the API call and just remove them locally.
     final isPendingOrFailed = int.tryParse(message.id) == null;
     try {
@@ -1803,10 +1803,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
         // Keep resizeToAvoidBottomInset at its default (true): the Scaffold then
         // consumes the keyboard inset itself, so (a) the composer is pinned right
         // above the keyboard automatically, and (b) the body's MediaQuery padding
-        // stays *stable* while the keyboard animates — only the body height
+        // stays *stable* while the keyboard animates  only the body height
         // relayouts (cheap, RepaintBoundary tiles don't repaint), no per-frame
         // rebuild. This is the WhatsApp-style layout. Do NOT set it to false and
-        // position manually — that left the composer behind the keyboard and made
+        // position manually  that left the composer behind the keyboard and made
         // the padding animate, which caused the laggy panel shift.
         appBar: _buildAppBar(),
         body: SafeArea(

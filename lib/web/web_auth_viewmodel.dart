@@ -9,7 +9,7 @@ import '../services/websocket_service.dart';
 import 'browser_info.dart';
 
 /// Web-only auth. Unlike the mobile [AuthViewModel] this has no local database,
-/// media cache, push tokens or dart:io dependencies — the web client is
+/// media cache, push tokens or dart:io dependencies  the web client is
 /// online-only and authenticates by linking to a phone via a QR token.
 class WebAuthViewModel extends ChangeNotifier {
   bool _isAuthenticated = false;
@@ -137,7 +137,7 @@ class WebAuthViewModel extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     // Deactivate this browser's session record server-side while our JWT is
     // still valid, so the phone's Linked devices list stays accurate. Best
-    // effort — a dead server shouldn't block local logout.
+    // effort  a dead server shouldn't block local logout.
     final linkToken = prefs.getString('web_link_token');
     if (linkToken != null && linkToken.isNotEmpty) {
       try {

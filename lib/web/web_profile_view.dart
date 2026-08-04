@@ -93,9 +93,9 @@ class _WebProfileViewState extends State<WebProfileView> {
           ),
         ),
         const SizedBox(height: 24),
-        _field(Icons.person, 'Name', _name.isEmpty ? '—' : _name),
-        _field(Icons.info_outline, 'About', _about.isEmpty ? '—' : _about),
-        _field(Icons.phone, 'Phone', _phone.isEmpty ? '—' : _phone),
+        _field(Icons.person, 'Name', _name.isEmpty ? '' : _name),
+        _field(Icons.info_outline, 'About', _about.isEmpty ? '' : _about),
+        _field(Icons.phone, 'Phone', _phone.isEmpty ? '' : _phone),
         const Spacer(),
         Padding(
           padding: const EdgeInsets.all(16),

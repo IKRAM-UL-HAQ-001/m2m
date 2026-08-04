@@ -86,7 +86,7 @@ class WebChatViewModel extends ChangeNotifier {
   void _onIncomingMessage(Message message) {
     final index = _chats.indexWhere((c) => c.id == message.chatId);
     if (index == -1) {
-      // Unknown chat (e.g. first message from a new contact) — resync.
+      // Unknown chat (e.g. first message from a new contact)  resync.
       unawaited(fetchChats(isSilent: true));
       return;
     }
@@ -126,10 +126,7 @@ class WebChatViewModel extends ChangeNotifier {
     _isLoadingMore = true;
     notifyListeners();
     try {
-      final more = await _apiService.getChats(
-        offset: _chats.length,
-        limit: 30,
-      );
+      final more = await _apiService.getChats(offset: _chats.length, limit: 30);
       final existingIds = _chats.map((c) => c.id).toSet();
       _chats.addAll(more.where((c) => !existingIds.contains(c.id)));
       _hasMore = more.length >= 30;

@@ -23,7 +23,7 @@ class GalleryMedia {
   final String? heroTag;
 }
 
-/// Full-screen, swipeable viewer for an album of images/videos — the panel that
+/// Full-screen, swipeable viewer for an album of images/videos  the panel that
 /// opens when a media cell is tapped. Images pinch-zoom (photo_view); videos
 /// play inline. A counter shows the position within the album.
 class MediaGalleryScreen extends StatefulWidget {

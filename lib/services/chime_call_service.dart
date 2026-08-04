@@ -9,7 +9,7 @@ import 'call_media_service.dart';
 /// Amazon Chime SDK implementation of [CallMediaService].
 ///
 /// All Chime SDK operations are delegated to native platform code via
-/// [MethodChannel].  The Flutter side never holds AWS credentials — only
+/// [MethodChannel].  The Flutter side never holds AWS credentials  only
 /// the meeting/attendee JSON blobs returned by the Django backend `/join/`.
 class ChimeCallService extends CallMediaService {
   static const _channel = MethodChannel('com.danish.m2m/chime');

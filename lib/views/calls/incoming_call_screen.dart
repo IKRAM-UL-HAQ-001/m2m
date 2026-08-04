@@ -30,7 +30,7 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
 
   // Front-camera self-preview, shown ONLY for incoming video calls so the
   // receiver sees themselves before answering (WhatsApp-style). This runs the
-  // camera independently of Chime — Chime can't start the local video tile until
+  // camera independently of Chime  Chime can't start the local video tile until
   // the call is joined (which happens on accept). The preview is therefore torn
   // down and the camera fully released the moment the user accepts, so Chime can
   // open the same physical camera without contention. See [_acceptCall].
@@ -71,7 +71,7 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
     if (_previewStarted) return;
     _previewStarted = true;
     try {
-      // Don't PROMPT for permission on the incoming screen — that would pop a
+      // Don't PROMPT for permission on the incoming screen  that would pop a
       // system dialog over the lock screen mid-ring. Only show the preview if
       // camera access was already granted; otherwise fall back to the avatar.
       // Camera permission is still requested at accept time by the media layer.
@@ -92,7 +92,7 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
       await controller.initialize();
 
       // The screen may have been accepted/closed while the camera was warming
-      // up — if so, release immediately and bail.
+      // up  if so, release immediately and bail.
       if (!mounted || _accepting || _closing) {
         await controller.dispose();
         return;
@@ -174,7 +174,7 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
     final navigator = Navigator.of(context);
     // Release the camera BEFORE the accept flow runs. The backend accept is a
     // network round-trip and Chime's startLocalVideo only runs after it, so the
-    // camera is comfortably free by the time Chime opens it — but we await the
+    // camera is comfortably free by the time Chime opens it  but we await the
     // release here anyway to guarantee the handoff can never collide.
     await _releasePreview();
     NotificationService().dismissIncomingCall(call.id);

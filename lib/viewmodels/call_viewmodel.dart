@@ -684,7 +684,7 @@ class CallViewModel extends ChangeNotifier {
       debugPrint('Chime connect completed callId=$callId');
       // Push the per-call default mic/audio-route to native so the on-screen
       // toggles match reality from the first frame. connect() only starts
-      // audio/video — it does NOT set the audio route, so a video call (speaker
+      // audio/video  it does NOT set the audio route, so a video call (speaker
       // by default) would otherwise play through the earpiece on Android until
       // the user manually toggled, leaving the speaker button out of sync.
       // Defaults are set per-call in _prepareNewCall. Best-effort: a routing

@@ -184,7 +184,7 @@ class AppDatabase extends _$AppDatabase {
     return entities.map((entity) => entity.toDomain()).toList();
   }
 
-  /// Messages I sent that never confirmed delivery to the server — still
+  /// Messages I sent that never confirmed delivery to the server  still
   /// `sending` (app killed mid-send) or `failed` (send threw). Used by the
   /// outgoing retry queue to resume them when connectivity returns. The
   /// `clientUuid` on each makes the resend idempotent server-side.

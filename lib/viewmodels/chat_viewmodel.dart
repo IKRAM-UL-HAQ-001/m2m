@@ -69,7 +69,7 @@ class ChatViewModel extends ChangeNotifier {
       _handlePresenceUpdate(data);
     });
     // The socket normally delivers live list updates. When it's down, a
-    // foreground push is the reliable signal — fall back to a silent refetch so
+    // foreground push is the reliable signal  fall back to a silent refetch so
     // the new message still lands on the chats tab without a manual refresh.
     NotificationService.onForegroundMessageData = (_) {
       if (_socketService.isConnected) return;
@@ -150,9 +150,7 @@ class ChatViewModel extends ChangeNotifier {
     unawaited(_db.upsertMessage(message));
     // Documents deliberately excluded: WhatsApp-style, they download on tap
     // (chat screen shows a download button) instead of auto-downloading.
-    if (!message.isMe &&
-        message.type != 'text' &&
-        message.type != 'document') {
+    if (!message.isMe && message.type != 'text' && message.type != 'document') {
       MediaStorageService.instance.cacheMessagesInBackground(
         [message],
         onCached: (cachedMessage, path) {
@@ -203,7 +201,7 @@ class ChatViewModel extends ChangeNotifier {
 
   /// WhatsApp-style outgoing reliability: resend messages that were left
   /// `sending` (app killed mid-send) or `failed` (send threw, e.g. offline)
-  /// once connectivity is back. Idempotent — each carries its original
+  /// once connectivity is back. Idempotent  each carries its original
   /// `clientUuid`, so the server reconciles a resend with any copy it already
   /// stored instead of duplicating it. Triggered after every successful chat
   /// sync (startup, resume, reconnect).
@@ -218,9 +216,10 @@ class ChatViewModel extends ChangeNotifier {
       final now = DateTime.now();
       for (final entity in entities) {
         final message = entity.toDomain();
-        // Skip just-created rows — they may still be uploading in-flight from
+        // Skip just-created rows  they may still be uploading in-flight from
         // the chat screen; resending now would race that upload.
-        if (now.difference(message.time) < const Duration(seconds: 20)) continue;
+        if (now.difference(message.time) < const Duration(seconds: 20))
+          continue;
         if (message.chatId.startsWith('new_')) continue;
         final receiverId =
             entity.receiverId ?? _receiverIdForChat(message.chatId);
@@ -320,7 +319,7 @@ class ChatViewModel extends ChangeNotifier {
       _lastServerSync = DateTime.now();
       notifyListeners();
       unawaited(_db.saveChats(page.items.map((c) => c.toEntity()).toList()));
-      // A successful sync means we have connectivity — resume any sends that
+      // A successful sync means we have connectivity  resume any sends that
       // were stranded while offline / when the app was killed mid-send.
       unawaited(retryUnsentMessages());
     } catch (e) {
@@ -332,7 +331,7 @@ class ChatViewModel extends ChangeNotifier {
     // Clear the spinner whenever a sync completes, even a silent one. A
     // non-silent UI fetch may have turned _isLoading on and then bailed at the
     // _chatSyncInFlight guard above; only the in-flight sync that "won" the
-    // race reaches here, so it must own clearing the flag — otherwise the
+    // race reaches here, so it must own clearing the flag  otherwise the
     // spinner sticks forever on an empty chat list.
     if (_isLoading) {
       _isLoading = false;

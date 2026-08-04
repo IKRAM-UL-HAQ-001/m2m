@@ -201,7 +201,7 @@ class NotificationService {
   Future<void> handleForegroundRemoteMessage(RemoteMessage message) async {
     if (_isIncomingCallPayload(message.data)) {
       // App is in the FOREGROUND: present the in-app incoming-call screen
-      // directly (this is the reliable, OEM-independent path — it does NOT touch
+      // directly (this is the reliable, OEM-independent path  it does NOT touch
       // the native CallKit activity, which some OEMs like MIUI gate behind
       // background-launch restrictions). CallKit is only used when the app is
       // backgrounded/terminated (see showRemoteMessageNotification). The screen
@@ -326,7 +326,7 @@ class NotificationService {
       // launch from the terminated/background state (no Flutter UI boot, single
       // ringtone). iOS keeps the full-screen-intent notification path.
       if (CallkitService.isSupported) {
-        // The push reached this device — ack ringing over HTTP so the caller
+        // The push reached this device  ack ringing over HTTP so the caller
         // sees "Ringing..." even if the app is never opened (mirrors the old
         // showIncomingCallNotification behaviour; markCallRinging loads the auth
         // token itself and is idempotent).
@@ -401,7 +401,7 @@ class NotificationService {
     // posts a notification, subsequent messages from the same person UPDATE that
     // same notification (same id) and stack their text in an inbox/messaging
     // list. The id is derived from the sender (falls back to the chat) so it is
-    // identical across messages — never a random id or timestamp.
+    // identical across messages  never a random id or timestamp.
     final groupKey = chatId ?? senderId;
     final group = await _accumulateMessageGroup(
       groupKey: groupKey,
@@ -528,7 +528,7 @@ class NotificationService {
 
     // The push reached this device (app backgrounded/terminated): ack ringing
     // over HTTP so the caller sees "Ringing..." even if the app is never
-    // opened. Works from the FCM background isolate — markCallRinging loads the
+    // opened. Works from the FCM background isolate  markCallRinging loads the
     // auth token itself. Idempotent and best-effort.
     unawaited(ApiService().markCallRinging(int.tryParse(callId) ?? 0));
 

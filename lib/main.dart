@@ -140,7 +140,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         viewModel.setIncomingCallFromPushPayload(extra) ||
         await viewModel.setIncomingCallFromPush(extra);
     if (!ready || !mounted) {
-      // Couldn't restore (already ended, etc.) — make sure the native UI clears.
+      // Couldn't restore (already ended, etc.)  make sure the native UI clears.
       unawaited(CallkitService.end(callId));
       return;
     }
@@ -148,7 +148,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     viewModel.markActiveCallScreenPushed();
     unawaited(_openActiveCallScreen(replace: false));
     // We've taken over with our own in-call screen + foreground service, so
-    // clear CallKit's call state/notification — it was only the ringing handler.
+    // clear CallKit's call state/notification  it was only the ringing handler.
     unawaited(CallkitService.end(callId));
   }
 
@@ -273,7 +273,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
     if (event.type != 'call_invite') {
       if (_isTerminalCallEvent(event)) {
-        // Caller cancelled / call ended — tear down whichever incoming UI is up.
+        // Caller cancelled / call ended  tear down whichever incoming UI is up.
         unawaited(CallkitService.end(event.call.id.toString()));
         if (_presentedIncomingCallId == event.call.id.toString()) {
           NotificationService().dismissIncomingCall(event.call.id);

@@ -146,10 +146,7 @@ class ChatsListView extends StatelessWidget {
               Navigator.pop(ctx);
               context.read<ChatViewModel>().deleteChat(chat.id);
             },
-            child: const Text(
-              'Delete',
-              style: TextStyle(color: Colors.red),
-            ),
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -158,7 +155,7 @@ class ChatsListView extends StatelessWidget {
 
   // Custom Row layout (replaces ListTile). ListTile constrains the height it
   // gives its subtitle, so on devices with a large system font / display size
-  // the last-message line could get clipped to nothing — that was the "last
+  // the last-message line could get clipped to nothing  that was the "last
   // message missing on some phones" bug. A plain Row + Expanded middle Column
   // (mainAxisSize.min, no fixed heights) always lays the message line out.
   Widget _buildChatTile(

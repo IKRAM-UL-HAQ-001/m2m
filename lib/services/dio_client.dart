@@ -44,7 +44,7 @@ class TokenStorage {
       // The keystore-backed keyset can become undecryptable
       // (BAD_DECRYPT / AEADBadTagException) after an app reinstall, OS update
       // or backup restore. Wipe the corrupt secure store and continue as
-      // logged-out instead of crashing startup — the user re-links/logs in.
+      // logged-out instead of crashing startup  the user re-links/logs in.
       debugPrint('Secure storage unreadable, resetting: $e');
       try {
         await _secureStorage.deleteAll();

@@ -125,7 +125,9 @@ class _WebChatViewState extends State<WebChatView> {
         for (final id in ids) {
           final i = _messages.indexWhere((m) => m.id == id);
           if (i != -1) {
-            _messages[i] = _messages[i].copyWith(deliveryState: s.deliveryState);
+            _messages[i] = _messages[i].copyWith(
+              deliveryState: s.deliveryState,
+            );
           }
         }
       });
@@ -349,7 +351,10 @@ class _WebChatViewState extends State<WebChatView> {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.insert_drive_file, color: Colors.indigo),
+              leading: const Icon(
+                Icons.insert_drive_file,
+                color: Colors.indigo,
+              ),
               title: const Text('Document'),
               onTap: () {
                 Navigator.pop(context);
@@ -397,7 +402,7 @@ class _WebChatViewState extends State<WebChatView> {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text(
-                'Microphone permission needed — allow it in the browser',
+                'Microphone permission needed  allow it in the browser',
               ),
             ),
           );
@@ -606,8 +611,9 @@ class _WebChatViewState extends State<WebChatView> {
 
   List<Message> get _selectedMessages {
     // Oldest first so a bulk forward arrives in the original order.
-    final selected =
-        _messages.where((m) => _selectedIds.contains(m.id)).toList();
+    final selected = _messages
+        .where((m) => _selectedIds.contains(m.id))
+        .toList();
     return selected.reversed.toList();
   }
 
@@ -653,7 +659,9 @@ class _WebChatViewState extends State<WebChatView> {
     final choice = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('Delete ${selected.length} message${selected.length == 1 ? '' : 's'}?'),
+        title: Text(
+          'Delete ${selected.length} message${selected.length == 1 ? '' : 's'}?',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -693,7 +701,11 @@ class _WebChatViewState extends State<WebChatView> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Edit message'),
-        content: TextField(controller: controller, autofocus: true, maxLines: 4),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLines: 4,
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -865,8 +877,7 @@ class _WebChatViewState extends State<WebChatView> {
         ),
         if (_replyingTo != null) _replyPreview(),
         _composer(),
-        if (_showEmoji)
-          SizedBox(height: 280, child: _emojiPicker()),
+        if (_showEmoji) SizedBox(height: 280, child: _emojiPicker()),
       ],
     );
   }
@@ -938,9 +949,7 @@ class _WebChatViewState extends State<WebChatView> {
                 ),
               ),
               Text(
-                _isOtherTyping
-                    ? 'typing…'
-                    : (_isOnline ? 'online' : 'offline'),
+                _isOtherTyping ? 'typing…' : (_isOnline ? 'online' : 'offline'),
                 style: TextStyle(color: Colors.grey[600], fontSize: 12),
               ),
             ],
@@ -1035,8 +1044,7 @@ class _WebChatViewState extends State<WebChatView> {
       child: GestureDetector(
         behavior: HitTestBehavior.translucent,
         onTap: _isSelectionMode ? () => _toggleSelection(message) : null,
-        onSecondaryTapDown: (d) =>
-            _showMessageMenu(message, d.globalPosition),
+        onSecondaryTapDown: (d) => _showMessageMenu(message, d.globalPosition),
         onLongPressStart: (d) => _showMessageMenu(message, d.globalPosition),
         child: Container(
           key: key,
@@ -1047,14 +1055,13 @@ class _WebChatViewState extends State<WebChatView> {
           alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
           child: Row(
             mainAxisSize: MainAxisSize.min,
-            mainAxisAlignment:
-                isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
+            mainAxisAlignment: isMe
+                ? MainAxisAlignment.end
+                : MainAxisAlignment.start,
             children: [
               if (_isSelectionMode) ...[
                 Icon(
-                  selected
-                      ? Icons.check_circle
-                      : Icons.radio_button_unchecked,
+                  selected ? Icons.check_circle : Icons.radio_button_unchecked,
                   size: 20,
                   color: selected ? AppColors.primaryColor : Colors.grey,
                 ),
@@ -1103,10 +1110,11 @@ class _WebChatViewState extends State<WebChatView> {
                         child: Container(
                           padding: const EdgeInsets.all(2),
                           decoration: BoxDecoration(
-                            color: (isMe
-                                    ? AppColors.outgoingMessageColor
-                                    : Colors.white)
-                                .withValues(alpha: 0.95),
+                            color:
+                                (isMe
+                                        ? AppColors.outgoingMessageColor
+                                        : Colors.white)
+                                    .withValues(alpha: 0.95),
                             borderRadius: const BorderRadius.only(
                               topRight: Radius.circular(8),
                               bottomLeft: Radius.circular(8),

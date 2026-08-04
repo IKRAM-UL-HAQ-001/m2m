@@ -91,9 +91,7 @@ class MessageTile extends StatelessWidget {
                         ? const Color(0xFF25D366)
                         : Colors.transparent,
                     border: Border.all(
-                      color: isSelected
-                          ? const Color(0xFF25D366)
-                          : Colors.grey,
+                      color: isSelected ? const Color(0xFF25D366) : Colors.grey,
                       width: 2,
                     ),
                   ),
@@ -104,80 +102,93 @@ class MessageTile extends StatelessWidget {
               ),
             Expanded(
               child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 2),
-        alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(maxWidth: Responsive.bubbleMaxWidth),
-          child: Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: isHighlighted
-                  ? const Color(0xFFFFF2A8)
-                  : isMe
-                  ? AppColors.outgoingMessageColor
-                  : Colors.white,
-              borderRadius: isMe
-                  ? const BorderRadius.only(
-                      topLeft: Radius.circular(12),
-                      topRight: Radius.circular(12),
-                      bottomLeft: Radius.circular(12),
-                      bottomRight: Radius.circular(3),
-                    )
-                  : const BorderRadius.only(
-                      topLeft: Radius.circular(3),
-                      topRight: Radius.circular(12),
-                      bottomLeft: Radius.circular(12),
-                      bottomRight: Radius.circular(12),
+                margin: const EdgeInsets.symmetric(vertical: 2),
+                alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: Responsive.bubbleMaxWidth,
+                  ),
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: isHighlighted
+                          ? const Color(0xFFFFF2A8)
+                          : isMe
+                          ? AppColors.outgoingMessageColor
+                          : Colors.white,
+                      borderRadius: isMe
+                          ? const BorderRadius.only(
+                              topLeft: Radius.circular(12),
+                              topRight: Radius.circular(12),
+                              bottomLeft: Radius.circular(12),
+                              bottomRight: Radius.circular(3),
+                            )
+                          : const BorderRadius.only(
+                              topLeft: Radius.circular(3),
+                              topRight: Radius.circular(12),
+                              bottomLeft: Radius.circular(12),
+                              bottomRight: Radius.circular(12),
+                            ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: isHighlighted
+                              ? AppColors.primaryColor.withValues(alpha: 0.22)
+                              : Colors.black.withValues(alpha: 0.06),
+                          blurRadius: isHighlighted ? 8 : 2,
+                          offset: Offset(0, isHighlighted ? 2 : 1),
+                        ),
+                      ],
                     ),
-              boxShadow: [
-                BoxShadow(
-                  color: isHighlighted
-                      ? AppColors.primaryColor.withValues(alpha: 0.22)
-                      : Colors.black.withValues(alpha: 0.06),
-                  blurRadius: isHighlighted ? 8 : 2,
-                  offset: Offset(0, isHighlighted ? 2 : 1),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (isDeleted)
+                          Text(
+                            '🚫 This message was deleted',
+                            style: TextStyle(
+                              color: Colors.grey[600],
+                              fontStyle: FontStyle.italic,
+                              fontSize: 14,
+                            ),
+                          ),
+                        if (!isDeleted && message.statusReply != null)
+                          _buildStatusReplyCard(
+                            context,
+                            message.statusReply!,
+                            isMe,
+                          ),
+                        if (!isDeleted && message.replyToId != null)
+                          _buildReplyQuote(message, isMe),
+                        if (!isDeleted && message.isForwarded)
+                          _buildForwardedLabel(),
+                        if (!isDeleted && isImage) _buildImageContent(message),
+                        if (!isDeleted && isVideo) _buildVideoContent(message),
+                        if (!isDeleted && isAudio)
+                          _buildAudioContent(message, isMe),
+                        if (!isDeleted && isDocument)
+                          _buildDocumentContent(message),
+                        if (!isDeleted &&
+                            message.text.isNotEmpty &&
+                            message.text != '[File]') ...[
+                          if (hasFile) const SizedBox(height: 4),
+                          Text(
+                            message.text,
+                            style: const TextStyle(
+                              color: Colors.black87,
+                              fontSize: 15,
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 2),
+                        _buildTimestampRow(message, isMe),
+                        if (message.reactions.isNotEmpty)
+                          _buildReactions(message),
+                      ],
+                    ),
+                  ),
                 ),
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (isDeleted)
-                  Text(
-                    '🚫 This message was deleted',
-                    style: TextStyle(
-                      color: Colors.grey[600],
-                      fontStyle: FontStyle.italic,
-                      fontSize: 14,
-                    ),
-                  ),
-                if (!isDeleted && message.statusReply != null)
-                  _buildStatusReplyCard(context, message.statusReply!, isMe),
-                if (!isDeleted && message.replyToId != null)
-                  _buildReplyQuote(message, isMe),
-                if (!isDeleted && message.isForwarded) _buildForwardedLabel(),
-                if (!isDeleted && isImage) _buildImageContent(message),
-                if (!isDeleted && isVideo) _buildVideoContent(message),
-                if (!isDeleted && isAudio) _buildAudioContent(message, isMe),
-                if (!isDeleted && isDocument) _buildDocumentContent(message),
-                if (!isDeleted &&
-                    message.text.isNotEmpty &&
-                    message.text != '[File]') ...[
-                  if (hasFile) const SizedBox(height: 4),
-                  Text(
-                    message.text,
-                    style: const TextStyle(color: Colors.black87, fontSize: 15),
-                  ),
-                ],
-                const SizedBox(height: 2),
-                _buildTimestampRow(message, isMe),
-                if (message.reactions.isNotEmpty) _buildReactions(message),
-              ],
-            ),
-          ),
-        ),
-      ),
+              ),
             ),
           ],
         ),
@@ -205,9 +216,7 @@ class MessageTile extends StatelessWidget {
         : 'Photo';
 
     return InkWell(
-      onTap: onOpenStatusReply == null
-          ? null
-          : () => onOpenStatusReply!(reply),
+      onTap: onOpenStatusReply == null ? null : () => onOpenStatusReply!(reply),
       borderRadius: BorderRadius.circular(8),
       child: Container(
         margin: const EdgeInsets.only(bottom: 6),
@@ -559,7 +568,7 @@ class MessageTile extends StatelessWidget {
         ? FileImage(File(localPath))
         : CachedNetworkImageProvider(imageUrl);
     // Use the real pixel dimensions the backend sends so the bubble matches the
-    // image's aspect ratio — no stretching, no cropping. Falls back to reading
+    // image's aspect ratio  no stretching, no cropping. Falls back to reading
     // the decoded image's own size when dimensions aren't recorded.
     final double? knownAspect =
         (message.width != null &&
@@ -656,7 +665,9 @@ class MessageTile extends StatelessWidget {
             .first;
     final localPath = message.localFilePath;
     final hasLocal =
-        localPath != null && localPath.isNotEmpty && File(localPath).existsSync();
+        localPath != null &&
+        localPath.isNotEmpty &&
+        File(localPath).existsSync();
 
     // WhatsApp behaviour: not on device yet -> tap downloads it (spinner while
     // in flight), on device -> tap opens with the system's default app.
@@ -1032,7 +1043,7 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
 
 /// Renders a chat image at its true aspect ratio, scaled to fit within
 /// [maxWidth]/[maxHeight]. The bubble's box always matches the image's shape, so
-/// the image is never stretched or cropped — large images shrink uniformly to
+/// the image is never stretched or cropped  large images shrink uniformly to
 /// fit (tap to open the full zoomable preview), small ones keep their shape.
 ///
 /// The aspect ratio is taken from the backend-provided pixel dimensions when
@@ -1061,7 +1072,7 @@ class _ChatImageState extends State<_ChatImage> {
   ImageStream? _stream;
   ImageStreamListener? _listener;
   // Cap decode resolution (~2x the max logical width) so a multi-megapixel photo
-  // doesn't decode at full size into memory — matches the old memCacheWidth.
+  // doesn't decode at full size into memory  matches the old memCacheWidth.
   late final ImageProvider _display = ResizeImage.resizeIfNeeded(
     520,
     null,
@@ -1085,7 +1096,9 @@ class _ChatImageState extends State<_ChatImage> {
           setState(() => _aspect = w / h);
         }
       },
-      onError: (error, stack) {/* keep the placeholder ratio */},
+      onError: (error, stack) {
+        /* keep the placeholder ratio */
+      },
     );
     _stream = stream..addListener(listener);
     _listener = listener;

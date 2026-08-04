@@ -22,7 +22,7 @@ public class CallForegroundService extends Service {
     private static final String TAG = "M2MCallService";
 
     // NOTE: this service deliberately does NOT touch AudioManager (mode/focus).
-    // The Amazon Chime SDK is the SOLE owner of the call audio session — it sets
+    // The Amazon Chime SDK is the SOLE owner of the call audio session  it sets
     // MODE_IN_COMMUNICATION, requests audio focus, owns routing, and runs the
     // voice-processing unit that does acoustic echo cancellation. When this
     // service also set the mode/focus (and reset the mode on its racy stop), it

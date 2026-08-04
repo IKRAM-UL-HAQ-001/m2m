@@ -195,7 +195,7 @@ class ChimeMeetingPlugin(private val context: Context) :
         session.audioVideo.addRealtimeObserver(this)
 
         session.audioVideo.start()
-        // Enable RECEIVING remote video. This is the master switch — it calls
+        // Enable RECEIVING remote video. This is the master switch  it calls
         // VideoClient.setReceiving(true) under the hood. Without it the video
         // client never accepts ANY inbound video frames, so onRemoteVideoSourceAvailable
         // can fire and we can call updateVideoSourceSubscriptions all we want, but
@@ -203,7 +203,7 @@ class ChimeMeetingPlugin(private val context: Context) :
         // "Waiting for video". updateVideoSourceSubscriptions only PICKS sources; it
         // does NOT flip the receiving flag. Audio + local self-view work without this,
         // which is exactly the symptom we were seeing. Always start it (cheap no-op for
-        // audio-only calls — no remote video sources will be advertised).
+        // audio-only calls  no remote video sources will be advertised).
         session.audioVideo.startRemoteVideo()
         if (videoEnabled) {
             session.audioVideo.startLocalVideo()
@@ -300,7 +300,7 @@ class ChimeMeetingPlugin(private val context: Context) :
      * Mirror the local self-view ONLY when the front camera is active, the way
      * users expect a selfie preview to behave. Back camera is never mirrored.
      * `mirror` is a render-only flag on the local DefaultVideoRenderView, so the
-     * stream sent to the remote peer is unaffected — they always see us
+     * stream sent to the remote peer is unaffected  they always see us
      * correctly oriented, and captured/published frames are not flipped.
      */
     private fun applyLocalMirror() {
@@ -393,7 +393,7 @@ class ChimeMeetingPlugin(private val context: Context) :
 
     // Chime SDK 0.21.0 does NOT auto-deliver remote video. When a peer turns on
     // their camera the SDK advertises the source here, and we must explicitly
-    // subscribe or onVideoTileAdded never fires for the remote tile — which is
+    // subscribe or onVideoTileAdded never fires for the remote tile  which is
     // exactly why remote video never rendered. Subscribe to every advertised
     // source at high priority/resolution (1:1 calls only ever have one).
     override fun onRemoteVideoSourceAvailable(sources: List<RemoteVideoSource>) {

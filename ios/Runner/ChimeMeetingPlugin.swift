@@ -150,7 +150,7 @@ public class ChimeMeetingPlugin: NSObject, FlutterPlugin, AudioVideoObserver, Vi
 
         do {
             try session.audioVideo.start()
-            // Enable RECEIVING remote video — the master switch for accepting inbound
+            // Enable RECEIVING remote video  the master switch for accepting inbound
             // video frames. updateVideoSourceSubscriptions only selects which sources to
             // subscribe to; it does not enable reception. Without this the peer's tile
             // never arrives and both sides sit on "Waiting for video" (audio + local
@@ -191,7 +191,7 @@ public class ChimeMeetingPlugin: NSObject, FlutterPlugin, AudioVideoObserver, Vi
     /// Mirror the local self-view ONLY when the front camera is active, the way
     /// users expect a selfie preview to behave. Back camera is never mirrored.
     /// `mirror` is render-only on the local DefaultVideoRenderView, so the stream
-    /// sent to the remote peer is unaffected — they always see us correctly
+    /// sent to the remote peer is unaffected  they always see us correctly
     /// oriented, and published/captured frames are not flipped.
     private func applyLocalMirror() {
         let isFront = meetingSession?.audioVideo.getActiveCamera()?.type == .videoFrontCamera
@@ -276,7 +276,7 @@ public class ChimeMeetingPlugin: NSObject, FlutterPlugin, AudioVideoObserver, Vi
 
     // Mirror of the Android fix: explicitly subscribe to remote video sources so
     // the remote tile is delivered. Harmless if the platform already
-    // auto-subscribes — subscribing to an active source is idempotent.
+    // auto-subscribes  subscribing to an active source is idempotent.
     public func remoteVideoSourcesDidBecomeAvailable(sources: [RemoteVideoSource]) {
         guard let audioVideo = meetingSession?.audioVideo, !sources.isEmpty else { return }
         var configs: [RemoteVideoSource: VideoSubscriptionConfiguration] = [:]
